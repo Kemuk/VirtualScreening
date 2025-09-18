@@ -13,6 +13,10 @@ export LC_ALL=C
 
 module purge || true
 module load parallel || true
+module load Anaconda3 || true
+# why: ensure correct obabel from the requested conda env
+# shellcheck disable=SC1091
+source activate "/data/stat-cadd/reub0582/vscreen_env" || { echo "ERROR: failed to activate conda env"; exit 1; }
 
 cd "${SLURM_SUBMIT_DIR}/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 1; }
 
@@ -20,13 +24,13 @@ CHUNKS_DIR="${CHUNKS_DIR:-chunks}"
 mkdir -p "$CHUNKS_DIR" ".sentinels/chunks_pk_min" "logs"
 
 create_chunks_once() {
-  # why: ensure idempotent chunking across array tasks
+  # why: NEVER overwrite text chunk files; idempotent creation
   local lock="$CHUNKS_DIR/.chunks.lock"
   {
     flock -n 9 || return 0
     shopt -s nullglob
     local existing=( "$CHUNKS_DIR"/chunk_*.txt )
-    (( ${#existing[@]} > 0 )) && { echo "Chunks exist."; return 0; }
+    (( ${#existing[@]} > 0 )) && { echo "Chunks exist. Skipping creation."; return 0; }
 
     mapfile -t ROWS < <(
       for pdir in */; do
@@ -67,14 +71,31 @@ NCHUNKS=${#CHUNKS[@]}
 CHUNK_FILE="${CHUNKS[$SLURM_ARRAY_TASK_ID]}"
 OUT_CSV="${CHUNK_FILE%.txt}.csv"
 
-# Header: no rmsd; Best_Score -> pK
+# Header (CSV overwrite allowed by design)
 echo "Ligand_ID,Protein_ID,Ligand_SDF_Path,Protein_SDF_Path,pK,MW,LogP,HBD,HBA,is_active,pred_active" > "$OUT_CSV"
 
-# --- helpers (simple, no fallbacks, no defaults) ---
+# --- helpers ---
 
 extract_pk() {
-  # first numeric row with mode == 1, print affinity (col 2)
   awk '/^[[:space:]]*1[[:space:]]/ { print $2; exit }' "$1"
+}
+
+# why: single-descriptor call; stable output via -otxt and empty title
+get_desc() {
+  local sdf="$1" key="$2"
+  [[ -f "$sdf" ]] || { echo ""; return 0; }
+  obabel "$sdf" -otxt --title "" --append "$key" 2>/dev/null | head -n1 | tr -d '\r'
+}
+
+# why: generalizable collector returning a newline-separated array
+collect_props() {
+  local sdf="$1"; shift
+  local vals=() key val
+  for key in "$@"; do
+    val="$(get_desc "$sdf" "$key")"
+    vals+=( "$val" )
+  done
+  printf "%s\n" "${vals[@]}"
 }
 
 process() {
@@ -92,16 +113,19 @@ process() {
   [[ -f "$logf" ]] || return
 
   local pk; pk=$(extract_pk "$logf")
-  [[ -n "$pk" ]] || return  # skip if no mode=1 line
+  [[ -n "$pk" ]] || return
 
   local lig_sdf="./${protein_id}/docked_sdf/${mode}/${lig_id}.sdf"
   local prot_sdf="./${protein_id}/${protein_id}.sdf"
 
-  # MW/LogP/HBD/HBA/pred_active left empty by design
-  printf "%s,%s,%s,%s,%s,,,,,%s,\n" \
-    "$lig_id" "$protein_id" "$lig_sdf" "$prot_sdf" "$pk" "$is_active"
+  # HBA column comes from Open Babel's HBA1 descriptor
+  readarray -t props < <(collect_props "$lig_sdf" MW logP HBD HBA1)
+  local mw="${props[0]:-}" logp="${props[1]:-}" hbd="${props[2]:-}" hba="${props[3]:-}"
+
+  printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\n" \
+    "$lig_id" "$protein_id" "$lig_sdf" "$prot_sdf" "$pk" "$mw" "$logp" "$hbd" "$hba" "$is_active"
 }
-export -f process extract_pk
+export -f process extract_pk get_desc collect_props
 
 # Run this chunk
 parallel -j "$SLURM_CPUS_PER_TASK" --colsep '\t' process {1} {2} < "$CHUNK_FILE" >> "$OUT_CSV"
@@ -118,5 +142,4 @@ if [[ "${SLURM_ARRAY_TASK_ID}" -eq $((NCHUNKS-1)) ]]; then
   fi
 fi
 
-# Mark done
 touch ".sentinels/chunks_pk_min/task_${SLURM_ARRAY_TASK_ID}.done"
