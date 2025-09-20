@@ -3,42 +3,38 @@
 #SBATCH --output=make_boxes_%j.out
 #SBATCH --error=make_boxes_%j.err
 #SBATCH --time=01:00:00
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=4G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
 
 : <<'PSEUDOCODE'
-- Generate two configs per protein: <complex>_config_actives.txt / _inactives.txt
-  receptor=./<receptor>.pdbqt, ligand_directory=./pdbqt/<mode>/, out=./docked_vina/<mode>/
-  include center/size/thread
-- Build per-config chunks in LIT_PCBA/chunks:
-  Each chunk file contains lines: CONFIG<TAB>LIGAND
-  Chunk filenames: chunk_<target>_<complex>_<mode>_<NNNN>.txt (0-based index)
-- Emit summary + sbatch array hint
+- Generate docking configurations for each protein.
+- Create a master CSV file (`vina_boxes.csv`) with one line per protein, defining paths and box dimensions.
+- Build global chunk files (`chunk_all_*.tsv`) containing all config/ligand pairs for a subsequent job array.
 PSEUDOCODE
 
 set -euo pipefail
 set -x
 
-# Modules
+# --------------------- Modules & Environment ---------------------
 module purge || true
 module load PyMOL || module load pymol || true
 command -v pymol >/dev/null 2>&1 || { echo "ERROR: PyMOL not found"; exit 1; }
 module load OpenBabel || true
 
-# Box sizing controls
+# --------------------- Box Sizing Controls ---------------------
 PAD="${PAD:-8.0}"
 MIN_SIZE="${MIN_SIZE:-18}"
 MAX_SIZE="${MAX_SIZE:-36}"
 THREAD="${THREAD:-8000}"   # QVina GPU parallel scale
 
-# Go to dataset root
+# --------------------- Main Setup ---------------------
 cd "$SLURM_SUBMIT_DIR/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 1; }
 
-# Master CSV
+# Master CSV with simplified, merged columns
 MASTER_CSV="$SLURM_SUBMIT_DIR/LIT_PCBA/vina_boxes.csv"
-echo "target,receptor_pdbqt,actives_glob,inactives_glob,out_dir,center_x,center_y,center_z,size_x,size_y,size_z,thread,rescoring_receptor_pdb,sdf_out_actives_dir,sdf_out_inactives_dir,aev_plig_csv" > "$MASTER_CSV"
+echo "target,receptor_pdbqt,ligands_pdbqt,out_dir,center_x,center_y,center_z,size_x,size_y,size_z,thread,docked_vina,docked_sdf,aev_plig_csv" > "$MASTER_CSV"
 
-# PyMOL script
+# PyMOL script for calculating the bounding box
 PY_SCRIPT="${SLURM_TMPDIR:-$SLURM_SUBMIT_DIR}/pymol_box.py"
 cat > "$PY_SCRIPT" << 'PYEOF'
 from pymol import cmd
@@ -63,28 +59,26 @@ cx, cy, cz = cmd.centerofmass("prot and not hydro")
 print(f"{cx:.3f},{cy:.3f},{cz:.3f},22.000,22.000,22.000")
 PYEOF
 
-# Find receptors (two levels down)
+# --------------------- Receptor Processing Loop ---------------------
 mapfile -d '' -t RECEPTORS < <(find . -mindepth 2 -maxdepth 2 -type f -name '*_protein.pdbqt' -print0 | sort -z)
 echo "Found ${#RECEPTORS[@]} receptors"
 
 CONFIGS=()
-
 for rpq in "${RECEPTORS[@]}"; do
-  protein_dir="$(dirname "$rpq")"           # ./IDH1
-  target="$(basename "$protein_dir")"       # IDH1
-  base="$(basename "$rpq")"                 # 4umx_protein.pdbqt
-  complex_name="${base%%_protein.*}"        # 4umx
+  protein_dir="$(dirname "$rpq")"
+  target="$(basename "$protein_dir")"
+  base="$(basename "$rpq")"
+  complex_name="${base%%_protein.*}"
 
+  # Find a representative ligand to size the box
   actives_dir="$protein_dir/pdbqt/actives"
   inactives_dir="$protein_dir/pdbqt/inactives"
   mkdir -p "$actives_dir" "$inactives_dir"
-
-  # find representative ligand for sizing
   rep_lig="$(find "$actives_dir" -maxdepth 1 -type f -name '*.pdbqt' | head -n1 || true)"
   [ -z "$rep_lig" ] && rep_lig="$(find "$inactives_dir" -maxdepth 1 -type f -name '*.pdbqt' | head -n1 || true)"
   [ -z "$rep_lig" ] && rep_lig="$(find "$protein_dir" -maxdepth 1 -type f -name '*_ligand.pdbqt' | head -n1 || true)"
 
-  # convert to PDB if possible for PyMOL
+  # Convert to PDB for PyMOL if possible
   tmpd="$(mktemp -d)"
   rec_pdb="$tmpd/receptor.pdb"
   lig_pdb="$tmpd/ligand.pdb"
@@ -99,28 +93,32 @@ for rpq in "${RECEPTORS[@]}"; do
     rec_pdb="$rpq"; lig_pdb="${rep_lig:-}"
   fi
 
-  IFS=',' read -r cx cy cz sx sy sz < <(pymol -cq "$PY_SCRIPT" -- "$rec_pdb" "$lig_pdb" "$PAD" "$MIN_SIZE" "$MAX_SIZE")
+  # Robustly capture PyMOL output
+  pymol_out=$(pymol -cq "$PY_SCRIPT" -- "$rec_pdb" "$lig_pdb" "$PAD" "$MIN_SIZE" "$MAX_SIZE")
   rm -rf "$tmpd"
+  if [[ -z "$pymol_out" ]]; then
+      echo "ERROR: PyMOL returned no output for receptor '$rpq'. Aborting." >&2
+      exit 1
+  fi
+  IFS=',' read -r cx cy cz sx sy sz <<< "$pymol_out"
 
-  # CSV bookkeeping
-  actives_glob="$actives_dir/*.pdbqt"
-  inactives_glob="$inactives_dir/*.pdbqt"
+  # Define paths and globs for the master CSV
   out_dir="$protein_dir/pdbqt/out"
-
-  rescoring_receptor_pdb="$protein_dir/rescoring/receptors_pdb/${target}.pdb"
-  sdf_out_actives_dir="$protein_dir/rescoring/poses_sdf/actives"
-  sdf_out_inactives_dir="$protein_dir/rescoring/poses_sdf/inactives"
   aev_plig_csv="$protein_dir/rescoring/datasets/aev_plig_${target}.csv"
+  ligands_pdbqt="${protein_dir}/pdbqt/{actives,inactives}/*.pdbqt"
+  docked_vina="${protein_dir}/docked_vina/{actives,inactives}"
+  docked_sdf="${protein_dir}/docked_sdf/{actives,inactives}"
 
-  mkdir -p "$out_dir" "$(dirname "$rescoring_receptor_pdb")" "$sdf_out_actives_dir" "$sdf_out_inactives_dir" "$(dirname "$aev_plig_csv")" "$protein_dir/docked_vina/actives" "$protein_dir/docked_vina/inactives"
+  mkdir -p "$out_dir" "$protein_dir/docked_vina/"{actives,inactives} "$protein_dir/docked_sdf/"{actives,inactives} "$(dirname "$aev_plig_csv")"
 
-  printf "%s,%s,%s,%s,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%s,%s,%s,%s,%s\n" \
-    "$target" "$rpq" "$actives_glob" "$inactives_glob" "$out_dir" \
+  # Write row to vina_boxes.csv (no quoted strings)
+  printf "%s,%s,%s,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%s,%s,%s,%s\n" \
+    "$target" "$rpq" "$ligands_pdbqt" "$out_dir" \
     "$cx" "$cy" "$cz" "$sx" "$sy" "$sz" "$THREAD" \
-    "$rescoring_receptor_pdb" "$sdf_out_actives_dir" "$sdf_out_inactives_dir" "$aev_plig_csv" \
+    "$docked_vina" "$docked_sdf" "$aev_plig_csv" \
     >> "$MASTER_CSV"
 
-  # two configs
+  # Generate config files for actives and inactives
   for mode in actives inactives; do
     cfg_path="$protein_dir/${complex_name}_config_${mode}.txt"
     receptor_rel="./$(basename "$rpq")"
@@ -136,51 +134,44 @@ done
 
 echo "Wrote master CSV: $MASTER_CSV"
 
-# ----------------- Build PER-CONFIG chunks -----------------
-CHUNK_SIZE="${CHUNK_SIZE:-2000}"           # 1000–2000 typical
+# ----------------- Build Global Chunk Files -----------------
 CHUNKS_DIR="$SLURM_SUBMIT_DIR/LIT_PCBA/chunks"
 mkdir -p "$CHUNKS_DIR"
+MAX_ARRAY_SIZE="${MAX_ARRAY_SIZE:-1001}"
 
-total_pairs=0
-total_chunks=0
+generate_pairs() {
+    for CFG in "${CONFIGS[@]}"; do
+        lig_rel=$(awk -F'=' '/^ligand_directory/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "$CFG")
+        [ -z "$lig_rel" ] && { echo "WARN: no ligand_directory in $CFG" >&2; continue; }
 
-for CFG in "${CONFIGS[@]}"; do
-  cfg_dir="$(cd "$(dirname "$CFG")" && pwd -P)"
-  cfg_base="$(basename "$CFG")"                      # e.g., 4umx_config_actives.txt
-  complex="${cfg_base%%_config_*}"                   # 4umx
-  mode="${cfg_base##*_config_}"; mode="${mode%.*}"   # actives|inactives
-  target="$(basename "$cfg_dir")"                    # protein dir name
+        cfg_dir=$(cd "$(dirname "$CFG")" && pwd -P)
+        lig_dir="$cfg_dir/${lig_rel#./}"
+        [ -d "$lig_dir" ] || { echo "WARN: lig dir missing $lig_dir for $CFG" >&2; continue; }
 
-  lig_rel="$(awk -F'=' '$1 ~ /^ligand_directory[[:space:]]*$/ { $1=""; sub(/^=/,""); print }' "$CFG" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-  [ -z "$lig_rel" ] && { echo "WARN: no ligand_directory in $CFG"; continue; }
-  lig_dir="$cfg_dir/${lig_rel#./}"; lig_dir="${lig_dir%/}"
-  [ -d "$lig_dir" ] || { echo "WARN: lig dir missing $lig_dir for $CFG"; continue; }
-
-  # enumerate ligands (sorted)
-  mapfile -d '' -t ligs < <(find "$lig_dir" -maxdepth 1 -type f -name '*.pdbqt' -print0 | sort -z)
-  count="${#ligs[@]}"
-  [ "$count" -gt 0 ] || { echo "WARN: 0 ligands for $CFG"; continue; }
-
-  # write chunks
-  n_chunks=$(( (count + CHUNK_SIZE - 1) / CHUNK_SIZE ))
-  for ((i=0;i<n_chunks;i++)); do
-    chunk_path="$CHUNKS_DIR/chunk_${target}_${complex}_${mode}_$(printf "%04d" "$i").txt"
-    : > "$chunk_path"
-    start=$(( i * CHUNK_SIZE ))
-    end=$(( start + CHUNK_SIZE ))
-    (( end > count )) && end=$count
-    for ((j=start;j<end;j++)); do
-      printf "%s\t%s\n" "$CFG" "${ligs[j]}" >> "$chunk_path"
+        find "$lig_dir" -maxdepth 1 -type f -name '*.pdbqt' -print0 | sort -z | while IFS= read -r -d '' LIG; do
+            printf "%s\t%s\n" "$CFG" "$LIG"
+        done
     done
-    echo "Wrote $chunk_path ($(wc -l < "$chunk_path") lines)"
-  done
+}
 
-  total_pairs=$(( total_pairs + count ))
-  total_chunks=$(( total_chunks + n_chunks ))
-done
-
-echo "Chunks dir: $CHUNKS_DIR"
+echo "Calculating total pairs..."
+total_pairs=$(generate_pairs | wc -l)
 echo "Total pairs: $total_pairs"
-echo "Total chunks: $total_chunks"
-echo "Submit with:"
-echo "  N=\$(ls -1 \"$CHUNKS_DIR\"/chunk_*.txt | wc -l); sbatch --array=0-\$((N-1)) qvina_chunks_array.slurm \"$CHUNKS_DIR\""
+
+if [ "$total_pairs" -eq 0 ]; then
+    echo "Nothing to chunk. Exiting."
+    exit 0
+fi
+
+desired_chunks=$(( total_pairs < MAX_ARRAY_SIZE ? total_pairs : MAX_ARRAY_SIZE ))
+echo "MaxArraySize: $MAX_ARRAY_SIZE -> desired_chunks: $desired_chunks"
+
+echo "Generating chunk files in $CHUNKS_DIR..."
+generate_pairs | split -n "r/${desired_chunks}" -d --suffix-length=4 --additional-suffix=.tsv - "${CHUNKS_DIR}/chunk_all_"
+
+# --------------------- Report & Summary ---------------------
+total_chunks=$(find "$CHUNKS_DIR" -type f -name 'chunk_all_*.tsv' | wc -l)
+echo "Chunks dir: $CHUNKS_DIR"
+echo "Total chunks created: $total_chunks"
+echo "Submit the next step with:"
+echo "  sbatch --array=0-$((total_chunks-1)) <your_next_script.slurm>"
