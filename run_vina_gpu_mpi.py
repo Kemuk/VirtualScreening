@@ -5,25 +5,25 @@ run_vina_gpu_mpi.py
 A minimal, robust MPI work-queue for running QuickVina2‑GPU
 (one ligand per job) with per‑GPU worker ranks.
 
-Key simplifications vs. your original:
+Key points:
 - Build the job list on rank 0 only (config expansion is cheap I/O).
-- Classic pull‑based master/worker (READY/START/DONE/STOP) for perfect load balance.
+- Pull‑based master/worker (READY/START/DONE/STOP) for perfect load balance.
 - One worker process per GPU; GPU bound via local rank or CUDA_VISIBLE_DEVICES index.
-- No pandas/tqdm dependency (optional: toggle progress printing).
-- Manifest written incrementally as results arrive; memory stays O(#workers).
-- ENV setup is optional via --env_setup (kept for clusters that need module loads).
-- Safer subprocess (list form) unless a shell prefix is requested.
+- No pandas/tqdm dependency; optional single-line progress from rank 0.
+- Manifest written incrementally (global + per-target), O(#workers) memory.
+- Logs contain **only Vina's stdout/stderr** for each ligand.
+- Workers **cd into the Vina binary directory** (like your smoketest) so kernels and local libs are found.
 
 Run (example with Slurm):
   srun --mpi=pmix --gpus-per-task=1 -n <num_gpus_total> python run_vina_gpu_mpi.py \
-      --csv LIT_PCBA/vina_boxes.csv --vina_bin /path/to/QuickVina2-GPU-2-1
+      --csv LIT_PCBA/vina_boxes.csv --vina_bin vina-gpu-dev/QuickVina2-GPU-2-1
 
 Manifest/logs:
 - <output_dir>/log/<ligand_name>_gpu<GPU_ID>.log
 - docking_manifest.csv (one row per ligand with status/rc/log path)
 """
 
-import argparse, os, csv, shlex, subprocess
+import argparse, os, csv, shlex, subprocess, shutil
 from pathlib import Path
 from mpi4py import MPI
 import sys, time
@@ -36,7 +36,6 @@ ENV_SETUP = (
     "CUDA/12.0.0  OpenMPI/4.1.1-GCC-11.2.0 || true"
 )
 
-
 # --------------------- CLI ---------------------
 
 def parse_args():
@@ -44,11 +43,11 @@ def parse_args():
     ap.add_argument("--csv", default="LIT_PCBA/vina_boxes.csv",
                     help="Path to vina_boxes.csv (default: LIT_PCBA/vina_boxes.csv)")
     ap.add_argument("--vina_bin", default="vina-gpu-dev/QuickVina2-GPU-2-1",
-                    help="Path to QuickVina2‑GPU binary (default: vina-gpu-dev/QuickVina2-GPU-2-1)")
+                    help="Path or name of QuickVina2‑GPU binary (default: vina-gpu-dev/QuickVina2-GPU-2-1)")
     ap.add_argument("--gpus", type=int, default=None,
                     help="GPUs per node (default: autodetect via nvidia-smi)")
     ap.add_argument("--threads", type=int, default=8000,
-                    help="--thread passed to vina per job (default: 8000)")
+                    help="--thread passed to Vina per job (default: 8000)")
     ap.add_argument("--dry_run", type=int, default=0,
                     help="If >0, limit to this many ligands total")
     ap.add_argument("--env_setup", default=ENV_SETUP,
@@ -150,7 +149,6 @@ def expand_config(cfg_path: Path, threads: int):
 
 def build_jobs_from_boxes(csv_path: Path, threads: int, limit: int = 0):
     csv_path = Path(csv_path)
-    # Map config path -> target for provenance (protein-level outputs/manifests)
     configs = []  # list of (config_path, target)
     with open(csv_path, newline="") as f:
         rdr = csv.DictReader(f)
@@ -175,6 +173,30 @@ def build_jobs_from_boxes(csv_path: Path, threads: int, limit: int = 0):
 READY, START, DONE, STOP = 1, 2, 3, 4
 
 
+def resolve_vina_bin(user_bin: str) -> str:
+    """Resolve QuickVina2-GPU path (like the smoketest).
+    Returns absolute path if found, else the original string (to allow PATH/module resolution).
+    """
+    p = Path(user_bin)
+    if p.exists():
+        return str(p.resolve())
+    if p.is_dir():
+        cand = p / "QuickVina2-GPU-2-1"
+        if cand.exists():
+            return str(cand.resolve())
+    for cand in (
+        Path("./vina-gpu-dev/QuickVina2-GPU-2-1/QuickVina2-GPU-2-1"),
+        Path("./vina-gpu-dev/QuickVina2-GPU-2-1"),
+        Path("./QuickVina2-GPU-2-1"),
+    ):
+        if cand.exists():
+            return str(cand.resolve())
+    which = shutil.which("QuickVina2-GPU-2-1")
+    if which:
+        return which
+    return user_bin
+
+
 def run_job(job: dict, vina_bin: str, gpu_id: int, env_setup: str = ""):
     out_file = Path(job["output_file"])    
     out_dir = out_file.parent
@@ -186,8 +208,15 @@ def run_job(job: dict, vina_bin: str, gpu_id: int, env_setup: str = ""):
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
+    # Resolve binary (absolute if local), prepend its dir to LD_LIBRARY_PATH
+    vina_path = resolve_vina_bin(vina_bin)
+    bin_dir = str(Path(vina_path).parent) if os.path.isabs(vina_path) and os.path.exists(vina_path) else None
+    if bin_dir:
+        env["LD_LIBRARY_PATH"] = (bin_dir + ":" + env.get("LD_LIBRARY_PATH", "")).rstrip(":")
+
+    # Build argv
     args = [
-        vina_bin,
+        vina_path,
         "--receptor", job["receptor"],
         "--ligand", job["ligand"],
         "--out", str(out_file),
@@ -200,11 +229,20 @@ def run_job(job: dict, vina_bin: str, gpu_id: int, env_setup: str = ""):
         "--thread", str(job["threads"]) ,
     ]
 
-    rc = 0
+    # Execute: we already chdir'ed into bin_dir at worker start; keep logs as Vina stdout/stderr only
     if env_setup:
-        # Use a shell to respect module loads etc.
-        cmd = env_setup + " " + " ".join(shlex.quote(x) for x in args)
-        rc = subprocess.call(cmd, shell=True, stdout=open(log_file, "w"), stderr=subprocess.STDOUT, executable="/bin/bash")
+        vina_cmd = " ".join(shlex.quote(x) for x in args)
+        setup = env_setup.strip().rstrip(';')
+        prologue = (
+            "set -euo pipefail; "
+            "if type module >/dev/null 2>&1; then :; "
+            "elif [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; "
+            "elif [ -n \"$MODULESHOME\" ] && [ -f \"$MODULESHOME/init/bash\" ]; then . \"$MODULESHOME/init/bash\"; fi; "
+        )
+        shell_cmd = f"{{ {prologue} {setup} ; }} >/dev/null 2>&1; exec {vina_cmd}"
+        with open(log_file, "w") as lf:
+            rc = subprocess.call(shell_cmd, shell=True, stdout=lf, stderr=subprocess.STDOUT,
+                                  executable="/bin/bash", env=env)
     else:
         with open(log_file, "w") as lf:
             rc = subprocess.call(args, stdout=lf, stderr=subprocess.STDOUT, env=env)
@@ -238,12 +276,10 @@ class WriterCache:
 
     def get(self, target: str):
         if target in self.cache:
-            # mark as most recent
             if target in self.order:
                 self.order.remove(target)
             self.order.append(target)
             return self.cache[target][1]
-        # evict if needed
         if len(self.cache) >= self.cap:
             old = self.order.pop(0)
             fh, _w, _p = self.cache.pop(old)
@@ -264,6 +300,7 @@ class WriterCache:
                 pass
         self.cache.clear()
         self.order.clear()
+
 
 def master(comm: MPI.Comm, args):
     rank = comm.Get_rank()
@@ -288,7 +325,7 @@ def master(comm: MPI.Comm, args):
     wc = WriterCache(Path(args.csv).parent, fieldnames, getattr(args, 'manifest_fd_cap', 128))
 
     # active workers count
-    size = comm.Get_size() if hasattr(comm, 'Get_size') else comm.Get_size()
+    size = comm.Get_size()
     closed_workers = 0
     job_idx = 0
     done = 0
@@ -337,7 +374,6 @@ def master(comm: MPI.Comm, args):
         elif tag == STOP:
             closed_workers += 1
 
-    # Close files
     mf.close()
     wc.close_all()
     if getattr(args, 'progress', False) and not args.quiet:
@@ -351,7 +387,12 @@ def master(comm: MPI.Comm, args):
 def worker(comm: MPI.Comm, args):
     num_gpus = args.gpus or detect_num_gpus()
     gpu_id = pick_gpu_id(num_gpus)
-    vina_bin = str(Path(args.vina_bin).resolve())
+
+    # Resolve the binary and chdir into its directory (like smoketest)
+    vina_bin_resolved = resolve_vina_bin(args.vina_bin)
+    bin_path = Path(vina_bin_resolved)
+    if bin_path.exists():
+        os.chdir(str(bin_path.parent))
 
     while True:
         comm.send(None, dest=0, tag=READY)
@@ -359,7 +400,7 @@ def worker(comm: MPI.Comm, args):
         job = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
         tag = status.Get_tag()
         if tag == START and job is not None:
-            result = run_job(job, vina_bin, gpu_id, env_setup=args.env_setup)
+            result = run_job(job, vina_bin_resolved, gpu_id, env_setup=args.env_setup)
             comm.send(result, dest=0, tag=DONE)
         elif tag == STOP:
             comm.send(None, dest=0, tag=STOP)
