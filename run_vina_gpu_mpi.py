@@ -15,22 +15,29 @@ Key points:
 - Workers don't chdir per job; we resolve the binary once and run with cwd=bin_dir.
 
 Run (example with Slurm):
-  srun --mpi=pmix --gpus-per-task=1 -n <num_gpus_total> python run_vina_gpu_mpi.py \
-      --csv LIT_PCBA/vina_boxes.csv --vina_bin vina-gpu-dev/QuickVina2-GPU-2-1
+    mpirun -np 3 --oversubscribe --map-by ppr:3:node --bind-to none \
+    python run_vina_gpu_mpi.py --smoke --smoke_n 50 --threads 0 --progress
 
 Manifest/logs:
 - <output_dir>/log/<ligand_name>_gpu<GPU_ID>.log
 - docking_manifest.csv (one row per ligand with status/rc/log path)
 """
 
-import argparse, os, csv, subprocess, shutil
+import argparse, os, csv, subprocess, shutil, numpy as np
 from pathlib import Path
 from mpi4py import MPI
 import sys, time
 from typing import Optional
 
 # Prefer preloading modules in the job script
-ENV_SETUP = ""
+REQUIRED_COLS = [
+    "target", "receptor_pdbqt",
+    "actives_dir", "inactives_dir",
+    "docked_vina_actives", "docked_vina_inactives",
+    "center_x", "center_y", "center_z",
+    "size_x", "size_y", "size_z",
+]
+
 
 # --------------------- CLI ---------------------
 
@@ -48,8 +55,6 @@ def parse_args():
                     help='--seed passed to Vina (default: "0")')
     ap.add_argument("--dry_run", type=int, default=0,
                     help="If >0, limit to this many ligands total")
-    ap.add_argument("--env_setup", default=ENV_SETUP,
-                    help="(Unused per job) Optional shell prefix for env/modules; prefer preloading modules in the job script")
     ap.add_argument("--quiet", action="store_true",
                     help="Less verbose output on rank 0")
     # Smoke-test mode (does NOT change threads; only limits ligands)
@@ -94,6 +99,22 @@ def pick_gpu_id(num_gpus: int) -> int:
         return int(ids[local_rank % len(ids)])
     return local_rank % max(1, num_gpus)
 
+def _read_numpy_csv(csv_path: Path):
+    """
+    Load CSV with NumPy structured array (names=True); returns a 1D structured array.
+    Handles the 0-dim corner case when there's a single data row.
+    """
+    arr = np.genfromtxt(
+        csv_path,
+        delimiter=",",
+        names=True,
+        dtype=None,            # infer dtypes; strings become <U* (unicode)
+        encoding="utf-8",
+    )
+    # If only one row, genfromtxt returns a 0-d array; coerce to 1-d
+    if arr.shape == ():
+        arr = np.array([arr], dtype=arr.dtype)
+    return arr
 
 def auto_threads_for_gpu() -> int:
     """
@@ -164,27 +185,82 @@ def expand_config(cfg_path: Path, threads: int):
 
 
 def build_jobs_from_boxes(csv_path: Path, threads: int, limit: int = 0):
-    csv_path = Path(csv_path)
-    configs = []  # list of (config_path, target)
+    # Validate header strictly (prevents silent mis-parsing)
     with open(csv_path, newline="") as f:
-        rdr = csv.DictReader(f)
-        for row in rdr:
-            target = row.get("target") or row.get("protein") or row.get("name") or "unknown"
-            for col in ("config_actives", "config_inactives"):
-                p = row.get(col)
-                if p:
-                    configs.append((Path(p), target))
+        rdr = csv.reader(f)
+        header = next(rdr)
+    missing = [c for c in REQUIRED_COLS if c not in header]
+    if missing:
+        raise ValueError(f"vina_boxes.csv missing required columns: {missing}")
+
+    arr = _read_numpy_csv(csv_path)
+
+    # Fail fast if any numeric fields are non-floatable
+    try:
+        cx = arr["center_x"].astype(float)
+        cy = arr["center_y"].astype(float)
+        cz = arr["center_z"].astype(float)
+        sx = arr["size_x"].astype(float)
+        sy = arr["size_y"].astype(float)
+        sz = arr["size_z"].astype(float)
+    except Exception as e:
+        raise ValueError(f"Non-numeric value in box columns: {e}")
+
+    # Vector-ish path resolution (per row)
+    targets   = arr["target"]
+    receptors = np.array([str(Path(p).resolve()) for p in arr["receptor_pdbqt"]], dtype=object)
+
+    act_in    = np.array([Path(p) for p in arr["actives_dir"]], dtype=object)
+    inact_in  = np.array([Path(p) for p in arr["inactives_dir"]], dtype=object)
+    act_out   = np.array([Path(p) for p in arr["docked_vina_actives"]], dtype=object)
+    inact_out = np.array([Path(p) for p in arr["docked_vina_inactives"]], dtype=object)
+
+    # Create output/log dirs once per unique path
+    for p in np.unique(np.concatenate([act_out, inact_out]).astype(object)):
+        Path(p).mkdir(parents=True, exist_ok=True)
+        (Path(p) / "log").mkdir(parents=True, exist_ok=True)
 
     jobs = []
-    for cfg, target in configs:
-        for job in expand_config(cfg, threads):
-            job["target"] = target
-            jobs.append(job)
+    # Expand ligands per row (filesystem expansion is inherently iterative)
+    for i in range(arr.shape[0]):
+        # Actives
+        ligs = sorted(act_in[i].glob("*.pdbqt"))
+        for lig in ligs:
+            ligand_name = lig.stem
+            out_file = act_out[i] / f"{ligand_name}_docked.pdbqt"
+            jobs.append({
+                "receptor":   receptors[i],
+                "ligand":     str(lig.resolve()),
+                "output_file": str(out_file.resolve()),
+                "center_x": float(cx[i]), "center_y": float(cy[i]), "center_z": float(cz[i]),
+                "size_x":   float(sx[i]), "size_y":   float(sy[i]), "size_z":   float(sz[i]),
+                "threads": threads,  # 0 allowed; worker auto-tunes
+                "ligand_name": ligand_name,
+                "target": str(targets[i]),
+            })
             if limit and len(jobs) >= limit:
                 return jobs[:limit]
-    return jobs
 
-# --------------------- Runner ---------------------
+        # Inactives
+        ligs = sorted(inact_in[i].glob("*.pdbqt"))
+        for lig in ligs:
+            ligand_name = lig.stem
+            out_file = inact_out[i] / f"{ligand_name}_docked.pdbqt"
+            jobs.append({
+                "receptor":   receptors[i],
+                "ligand":     str(lig.resolve()),
+                "output_file": str(out_file.resolve()),
+                "center_x": float(cx[i]), "center_y": float(cy[i]), "center_z": float(cz[i]),
+                "size_x":   float(sx[i]), "size_y":   float(sy[i]), "size_z":   float(sz[i]),
+                "threads": threads,
+                "ligand_name": ligand_name,
+                "target": str(targets[i]),
+            })
+            if limit and len(jobs) >= limit:
+                return jobs[:limit]
+
+    return jobs
+#--------------- Runner ---------------------
 
 READY, START, DONE, STOP = 1, 2, 3, 4
 
@@ -211,7 +287,6 @@ def resolve_vina_bin(user_bin: str) -> str:
     if which:
         return which
     return user_bin
-
 
 def run_job(job: dict, vina_bin: str, gpu_id: int, base_env: dict, bin_dir: Optional[str], seed: str):
     out_file = Path(job["output_file"])

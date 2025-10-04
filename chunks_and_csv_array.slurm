@@ -1,93 +1,51 @@
 #!/usr/bin/env bash
-# FILE: chunks_pk_minimal.sh
 #SBATCH --job-name=chunks_pk_min
 #SBATCH --output=logs/chunks_pk_%A_%a.out
 #SBATCH --error=logs/chunks_pk_%A_%a.err
 #SBATCH --time=01:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=4G
+#SBATCH --mem=16G
 #SBATCH --array=0-1000
+#SBATCH --requeue
 
 set -euo pipefail
+set -x
 export LC_ALL=C
 
 module purge || true
 module load parallel || true
 module load Anaconda3 || true
-# why: ensure correct obabel from the requested conda env
-# shellcheck disable=SC1091
-source activate "/data/stat-cadd/reub0582/vscreen_env" || { echo "ERROR: failed to activate conda env"; exit 1; }
+source activate "/data/stat-cadd/reub0582/vscreen_env" || { echo "ERROR: failed to activate conda env"; exit 99; }
 
-cd "${SLURM_SUBMIT_DIR}/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 1; }
+cd "${SLURM_SUBMIT_DIR}/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 99; }
 
 CHUNKS_DIR="${CHUNKS_DIR:-chunks}"
 mkdir -p "$CHUNKS_DIR" ".sentinels/chunks_pk_min" "logs"
 
-create_chunks_once() {
-  # why: NEVER overwrite text chunk files; idempotent creation
-  local lock="$CHUNKS_DIR/.chunks.lock"
-  {
-    flock -n 9 || return 0
-    shopt -s nullglob
-    local existing=( "$CHUNKS_DIR"/chunk_*.txt )
-    (( ${#existing[@]} > 0 )) && { echo "Chunks exist. Skipping creation."; return 0; }
-
-    mapfile -t ROWS < <(
-      for pdir in */; do
-        [[ -d "$pdir" ]] || continue
-        p="${pdir%/}"
-        cfg="$p/.placeholder.cfg"; [[ -f "$p"/*.cfg ]] && cfg=$(ls -1 "$p"/*.cfg | head -n1)
-        for mode in actives inactives; do
-          find "$p" -type f -path "*/$mode/*.pdbqt" -print
-          find "$p" -type f \( -path "*/ligands/$mode/*.pdbqt" -o -path "*/input/$mode/*.pdbqt" \) -print
-        done | awk -v cfg="$cfg" -v root="$PWD" '{ printf "%s\t%s\n", substr(cfg, length(root)+2), substr($0, length(root)+2) }'
-      done
-    )
-    (( ${#ROWS[@]} == 0 )) && { echo "No inputs."; return 0; }
-
-    local SHARD_SIZE="${SHARD_SIZE:-50000}"
-    local total="${#ROWS[@]}"
-    local n=$(( (total + SHARD_SIZE - 1) / SHARD_SIZE ))
-    local width=${#n}
-    local idx=0
-    for (( c=0; c<n; c++ )); do
-      out="$CHUNKS_DIR/chunk_$(printf "%0${width}d" "$c").txt"
-      : > "$out"
-      for (( k=0; k<SHARD_SIZE && idx<total; k++,idx++ )); do
-        printf "%s\n" "${ROWS[$idx]}" >> "$out"
-      done
-    done
-    echo "Wrote $n chunk files."
-  } 9>"$lock"
-}
-create_chunks_once
-
-# Select this task's chunk
-mapfile -t CHUNKS < <(ls -1 "$CHUNKS_DIR"/chunk_*.txt 2>/dev/null || true)
+mapfile -t CHUNKS < <(ls -1 "$CHUNKS_DIR"/chunk_*.tsv 2>/dev/null || true)
 NCHUNKS=${#CHUNKS[@]}
-(( NCHUNKS == 0 )) && { echo "No chunks."; exit 0; }
+(( NCHUNKS == 0 )) && { echo "No chunk_*.tsv present under $CHUNKS_DIR; exiting."; exit 0; }
 (( SLURM_ARRAY_TASK_ID >= NCHUNKS )) && { touch ".sentinels/chunks_pk_min/task_${SLURM_ARRAY_TASK_ID}.done"; exit 0; }
 
 CHUNK_FILE="${CHUNKS[$SLURM_ARRAY_TASK_ID]}"
-OUT_CSV="${CHUNK_FILE%.txt}.csv"
+OUT_CSV="${CHUNK_FILE%.tsv}.csv"
 
-# Header (CSV overwrite allowed by design)
-echo "Ligand_ID,Protein_ID,Ligand_SDF_Path,Protein_SDF_Path,pK,MW,LogP,HBD,HBA,is_active,pred_active" > "$OUT_CSV"
+echo "unique_id,Protein_ID,sdf_file,pdb_file,pK,MW,LogP,HBD,HBA,is_active,pred_active" > "$OUT_CSV"
 
-# --- helpers ---
-
+# --- Helpers ---
 extract_pk() {
-  awk '/^[[:space:]]*1[[:space:]]/ { print $2; exit }' "$1"
+  awk '
+    /^[[:space:]]*1[[:space:]]/ {print $2; exit}
+    /REMARK[[:space:]]+VINA[[:space:]]+RESULT/ {print $4; exit}
+  ' "$1" | tr -d '\r'
 }
 
-# why: single-descriptor call; stable output via -otxt and empty title
 get_desc() {
   local sdf="$1" key="$2"
   [[ -f "$sdf" ]] || { echo ""; return 0; }
   obabel "$sdf" -otxt --title "" --append "$key" 2>/dev/null | head -n1 | tr -d '\r'
 }
 
-# why: generalizable collector returning a newline-separated array
 collect_props() {
   local sdf="$1"; shift
   local vals=() key val
@@ -98,41 +56,64 @@ collect_props() {
   printf "%s\n" "${vals[@]}"
 }
 
+with_root_prefix() {
+  local p="$1"
+  p="${p#$PWD/}"; p="${p#./}"; p="${p#LIT_PCBA/}"
+  printf "LIT_PCBA/%s" "$p"
+}
+
+resolve_protein_pdb() {
+  local protein_dir="$1" cfg_path="$2"
+  local base stem match
+  base="$(basename "$cfg_path")"; stem="${base%.*}"
+  match="$(compgen -G "$protein_dir/${stem}"*.pdb | head -n1 || true)"
+  if [[ -n "$match" ]]; then
+    echo "$match"
+  else
+    compgen -G "$protein_dir/"*.pdb | head -n1 || true
+  fi
+}
+
 process() {
   local cfg="$1" input_pdbqt="$2"
+  cfg="${cfg%$'\r'}"; input_pdbqt="${input_pdbqt%$'\r'}"
   [[ -f "$input_pdbqt" ]] || return
 
-  local protein_dir; protein_dir=$(dirname "$cfg")
-  local protein_id; protein_id=$(basename "$protein_dir")
-  local lig_id; lig_id=$(basename "$input_pdbqt" .pdbqt)
+  local protein_dir protein_id lig_id mode is_active logf pk lig_sdf prot_pdb
+  protein_dir=$(dirname "$cfg")
+  protein_id=$(basename "$protein_dir")
+  lig_id=$(basename "$input_pdbqt" .pdbqt)
 
-  local mode is_active
   if [[ "$input_pdbqt" == *"/actives/"* ]]; then mode="actives"; is_active=1; else mode="inactives"; is_active=0; fi
 
-  local logf="$protein_dir/docked_vina/$mode/log/${lig_id}.log"
+  logf="$protein_dir/docked_vina/$mode/log/${lig_id}.log"
   [[ -f "$logf" ]] || return
 
-  local pk; pk=$(extract_pk "$logf")
+  pk=$(extract_pk "$logf")
   [[ -n "$pk" ]] || return
 
-  local lig_sdf="./${protein_id}/docked_sdf/${mode}/${lig_id}.sdf"
-  local prot_sdf="./${protein_id}/${protein_id}.sdf"
+  lig_sdf="./${protein_id}/docked_sdf/${mode}/${lig_id}.sdf"
+  prot_pdb="$(resolve_protein_pdb "./${protein_id}" "$cfg")"
 
-  # HBA column comes from Open Babel's HBA1 descriptor
   readarray -t props < <(collect_props "$lig_sdf" MW logP HBD HBA1)
   local mw="${props[0]:-}" logp="${props[1]:-}" hbd="${props[2]:-}" hba="${props[3]:-}"
 
-  printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\n" \
-    "$lig_id" "$protein_id" "$lig_sdf" "$prot_sdf" "$pk" "$mw" "$logp" "$hbd" "$hba" "$is_active"
-}
-export -f process extract_pk get_desc collect_props
+  local csv_lig csv_pdb
+  csv_lig="$(with_root_prefix "$lig_sdf")"
+  csv_pdb="$(with_root_prefix "${prot_pdb:-}")"
 
-# Run this chunk
-parallel -j "$SLURM_CPUS_PER_TASK" --colsep '\t' process {1} {2} < "$CHUNK_FILE" >> "$OUT_CSV"
+  printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\n" \
+    "$lig_id" "$protein_id" "$csv_lig" "$csv_pdb" "$pk" "$mw" "$logp" "$hbd" "$hba" "$is_active"
+}
+export -f process extract_pk get_desc collect_props resolve_protein_pdb with_root_prefix
+
+# Run in parallel
+parallel -j "$SLURM_CPUS_PER_TASK" --colsep $'\t' process {1} {2} < "$CHUNK_FILE" >> "$OUT_CSV"
 echo "Wrote: $OUT_CSV"
 
-# Combine all on last index
-if [[ "${SLURM_ARRAY_TASK_ID}" -eq $((NCHUNKS-1)) ]]; then
+# Merge all into final CSV (last array task only)
+if [[ "${SLURM_ARRAY_TASK_ID}" -eq $((NCHUNKS - 1)) ]]; then
+  echo "Merging all chunk CSVs into final aev_plig.csv.gz..."
   mapfile -t PARTS < <(ls -1 "$CHUNKS_DIR"/chunk_*.csv 2>/dev/null)
   if (( ${#PARTS[@]} > 0 )); then
     head -n1 "${PARTS[0]}" > aev_plig.csv

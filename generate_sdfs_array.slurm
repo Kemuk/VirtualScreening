@@ -3,11 +3,12 @@
 #SBATCH --job-name=gen_sdfs
 #SBATCH --output=logs/gen_sdfs_%A_%a.out
 #SBATCH --error=logs/gen_sdfs_%A_%a.err
+#SBATCH --clusters=arc
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
-#SBATCH --array=0-1000
 #SBATCH --mail-type=NONE
+#SBATCH --array=0-49   # adjust for number of array tasks you want
 
 set -euo pipefail
 
@@ -39,36 +40,48 @@ send_email() {
   fi
 }
 
-PY_HELPER=$(mktemp /tmp/write_sdf_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}_XXXX.py)
+# Python helper: pick *best pose* (mode 1) from PDBQT
+PY_HELPER=$(mktemp /tmp/write_bestpose_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}_XXXX.py)
 cat > "$PY_HELPER" << 'PYEOF'
 import sys, os
 from rdkit import Chem
 try:
     from meeko import PDBQTMolecule, RDKitMolCreate
-except Exception:
-    PDBQTMolecule = None
+except ImportError:
+    sys.exit("ERROR: meeko not installed in environment")
 
-def rdkit_from_pdbqt(path):
-    if PDBQTMolecule is None: return None
+def extract_best_pose(pdbqt_file, sdf_out):
     try:
-        pq = PDBQTMolecule.from_file(path, skip_typing=True)
-        mols = [m for m in RDKitMolCreate.from_pdbqt_mol(pq) if m is not None]
-        return mols[0] if mols else None
-    except Exception:
-        return None
+        pq = PDBQTMolecule.from_file(pdbqt_file, skip_typing=True)
+    except Exception as e:
+        sys.stderr.write(f"Failed to parse {pdbqt_file}: {e}\n")
+        return 1
 
-def write_sdf(pdbqt_in, sdf_out):
-    mol = rdkit_from_pdbqt(pdbqt_in)
-    if mol is None: return 2
+    mols = [m for m in RDKitMolCreate.from_pdbqt_mol(pq) if m is not None]
+    if not mols:
+        sys.stderr.write(f"No molecules found in {pdbqt_file}\n")
+        return 2
+
+    # Each mol has REMARK lines; mode 1 = best (lowest energy, RMSD=0.000)
+    best = None
+    for mol in mols:
+        if mol.HasProp("REMARK"):
+            remark = mol.GetProp("REMARK")
+            if "VINA RESULT:" in remark and "0.000" in remark:  # RMSD = 0.000
+                best = mol
+                break
+    if best is None:
+        best = mols[0]  # fallback: first pose
+
     os.makedirs(os.path.dirname(sdf_out), exist_ok=True)
-    try:
-        Chem.MolToMolFile(mol, sdf_out)
-        return 0
-    except Exception:
-        return 3
+    w = Chem.SDWriter(sdf_out)
+    w.write(best)
+    w.close()
+    return 0
 
 if __name__ == "__main__":
-    sys.exit(write_sdf(sys.argv[1], sys.argv[2]))
+    pdbqt_in, sdf_out = sys.argv[1], sys.argv[2]
+    sys.exit(extract_best_pose(pdbqt_in, sdf_out))
 PYEOF
 
 emit_all() {
@@ -80,15 +93,17 @@ emit_all() {
       find "$pdir" -type f -path "*/$mode/*.pdbqt" -print0 2>/dev/null \
       | xargs -0 -I{} bash -c '
           lig="{}"; lig_id=$(basename "$lig" .pdbqt); d="'"$pdir"'/docked_vina/'"$mode"'/${lig_id}.pdbqt";
-          pref="$d"; [ -f "$pref" ] || pref="$lig";
-          printf "%s\t%s\t%s\t%s\t%s\n" "'"$pdir"'" "'"$mode"'" "$lig" "$lig_id" "$pref"
+          if [ -f "$d" ]; then
+            printf "%s\t%s\t%s\t%s\t%s\n" "'"$pdir"'" "'"$mode"'" "$lig" "$lig_id" "$d"
+          fi
         '
       # nested
       find "$pdir" -type f \( -path "*/ligands/$mode/*.pdbqt" -o -path "*/input/$mode/*.pdbqt" \) -print0 2>/dev/null \
       | xargs -0 -I{} bash -c '
           lig="{}"; lig_id=$(basename "$lig" .pdbqt); d="'"$pdir"'/docked_vina/'"$mode"'/${lig_id}.pdbqt";
-          pref="$d"; [ -f "$pref" ] || pref="$lig";
-          printf "%s\t%s\t%s\t%s\t%s\n" "'"$pdir"'" "'"$mode"'" "$lig" "$lig_id" "$pref"
+          if [ -f "$d" ]; then
+            printf "%s\t%s\t%s\t%s\t%s\n" "'"$pdir"'" "'"$mode"'" "$lig" "$lig_id" "$d"
+          fi
         '
     done
   done
@@ -102,12 +117,28 @@ build_one() {
   local sdf_dir="$protein_dir/docked_sdf/$mode"
   local lig_sdf="$sdf_dir/${lig_id}.sdf"
   [ -f "$lig_sdf" ] && return 0
-  if ! python "$PY_HELPER" "$pref_pdbqt" "$lig_sdf" >/dev/null 2>&1; then
+
+  if ! python "$PY_HELPER" "$pref_pdbqt" "$lig_sdf"; then
+    # fallback: OpenBabel (write all poses), then trim to first mol
     tmp_pdb=$(mktemp /tmp/lig_${lig_id}_XXXX.pdb)
     if $OBABEL -ipdbqt "$pref_pdbqt" -opdb -O "$tmp_pdb" >/dev/null 2>&1; then
       $OBABEL -ipdb "$tmp_pdb" -osdf -O "$lig_sdf" >/dev/null 2>&1 || true
     fi
     rm -f "$tmp_pdb"
+    if [ -f "$lig_sdf" ]; then
+      python - "$lig_sdf" <<'PYCODE'
+from rdkit import Chem, RDLogger
+import sys
+RDLogger.DisableLog("rdApp.*")
+path = sys.argv[1]
+suppl = Chem.SDMolSupplier(path, sanitize=True, removeHs=False)
+mols = [m for m in suppl if m is not None]
+if mols:
+    w = Chem.SDWriter(path)
+    w.write(mols[0])
+    w.close()
+PYCODE
+    fi
   fi
   [ -f "$lig_sdf" ] || echo "WARN: failed SDF $protein_dir/$mode/$lig_id" >&2
 }
@@ -120,7 +151,7 @@ emit_all \
 
 rm -f "$PY_HELPER"
 
-# Sentinel + single email
+# Sentinel + email
 touch ".sentinels/gen_sdfs/task_${ID}.done"
 {
   exec 9>".sentinels/gen_sdfs/.lock"

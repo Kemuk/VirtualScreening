@@ -1,128 +1,183 @@
 #!/usr/bin/env python3
 """
-run_vina_gpu_tqdm.py
+Sequential (non-MPI) docking with QuickVina2-GPU.
 
-Docking with QuickVina2-GPU:
-- Uses tqdm.contrib.concurrent.process_map for batch-level parallel jobs
-- Writes batches to scratch space
-- Single progress bar (batches)
+- Reads vina_boxes.csv
+- Expands each config into per-ligand jobs
+- Runs ligands sequentially (on a single GPU)
+- Outputs go directly into output folders
+- One manifest.csv per output folder
+- Supports:
+    --dry_run N   : Run only the first N ligands total
+    --test_run    : Run only the first batch (first ligand) from each config
 """
 
-import argparse, os, subprocess, tempfile, shutil
+import argparse, os, subprocess, csv, time
 from pathlib import Path
 import pandas as pd
-from tqdm.contrib.concurrent import process_map
+from tqdm import tqdm
 
 ENV_SETUP = (
     "ulimit -s 8192 || true; "
     "module purge || true; "
-    "module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true"
+    "module load Boost/1.77.0-GCC-11.2.0  Python/3.9.6-GCCcore-11.2.0 "
+    "CUDA/12.0.0  OpenMPI/4.1.1-GCC-11.2.0 || true"
 )
 
 # --------------------- Helpers ---------------------
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="LIT_PCBA/vina_boxes.csv")
+    ap.add_argument("--csv", default="LIT_PCBA/vina_boxes.csv",
+                    help="vina_boxes.csv with config_actives,config_inactives")
     ap.add_argument("--vina_bin", default="vina-gpu-dev/QuickVina2-GPU-2-1")
-    ap.add_argument("--overwrite", action="store_true")
-    ap.add_argument("--gpus", type=int, default=None)
-    ap.add_argument("--batch_size", type=int, default=100)
-    ap.add_argument("--scratch", default="/tmp", help="Scratch directory for temporary batch folders")
+    ap.add_argument("--threads", type=int, default=8000,
+                    help="Threads per job (default: 8000)")
+    ap.add_argument("--dry_run", type=int, default=0,
+                    help="If >0, only run this many ligands for testing")
+    ap.add_argument("--test_run", action="store_true",
+                    help="If set, only run the first ligand from each config")
+    ap.add_argument("--gpu_id", type=int, default=0,
+                    help="Which GPU to use (default: 0)")
     return ap.parse_args()
 
-def detect_num_gpus():
-    try:
-        out = subprocess.check_output("nvidia-smi -L | wc -l", shell=True)
-        return int(out.decode().strip())
-    except Exception:
-        return 1
+# --------------------- Job expansion ---------------------
+def expand_config(cfg_path, threads, test_run=False):
+    """Yield jobs for each ligand in a config file."""
+    cfg = Path(cfg_path)
+    receptor, lig_dir, out_dir = None, None, None
+    center, size = {}, {}
 
-def get_ligands(cfg: Path):
-    lig_dir = None
     with open(cfg) as f:
         for line in f:
-            if line.strip().startswith("ligand_directory"):
-                lig_dir = Path(line.split("=")[1].strip())
+            parts = line.strip().split("=")
+            if len(parts) != 2:
+                continue
+            key, val = parts[0].strip(), parts[1].strip()
+            if key == "receptor":
+                receptor = Path(val)
+                if not receptor.is_absolute():
+                    receptor = cfg.parent / receptor
+            elif key == "ligand_directory":
+                lig_dir = Path(val)
                 if not lig_dir.is_absolute():
-                    lig_dir = Path(cfg).parent / lig_dir
-    return list(lig_dir.glob("*.pdbqt")) if lig_dir and lig_dir.exists() else []
-
-def chunked(seq, size):
-    return (seq[i:i+size] for i in range(0, len(seq), size))
-
-def iter_batches(df, batch_size):
-    configs = (
-        Path(row[c]) for _, row in df.iterrows()
-        for c in ("config_actives", "config_inactives")
-        if row.get(c) and Path(row[c]).exists()
-    )
-
-    return (
-        (cfg, i, batch)
-        for cfg in configs
-        for ligands in [get_ligands(cfg)]
-        for i, batch in enumerate(chunked(ligands, batch_size))
-        if batch
-    )
-
-# --------------------- Worker ---------------------
-def run_batch(args):
-    cfg, batch_idx, batch_ligs, vina_bin, gpu_id, scratch = args
-    tmp_dir = Path(tempfile.mkdtemp(prefix=f"{cfg.stem}_batch{batch_idx}_", dir=scratch))
-    lig_batch_dir = tmp_dir / "ligs"
-    lig_batch_dir.mkdir(parents=True, exist_ok=True)
-    for lig in batch_ligs:
-        shutil.copy(lig, lig_batch_dir)
-
-    batch_cfg = tmp_dir / f"config_batch_{batch_idx}.txt"
-    with open(cfg) as f, open(batch_cfg, "w") as fout:
-        for line in f:
-            if line.strip().startswith("ligand_directory"):
-                fout.write(f"ligand_directory = {lig_batch_dir}\n")
-            elif line.strip().startswith("output_directory"):
-                out_dir = Path(line.split("=")[1].strip())
+                    lig_dir = cfg.parent / lig_dir
+            elif key in ("out", "output_directory"):
+                out_dir = Path(val)
                 if not out_dir.is_absolute():
                     out_dir = cfg.parent / out_dir
-                out_dir = out_dir / f"batch_{batch_idx}"
-                out_dir.mkdir(parents=True, exist_ok=True)
-                fout.write(f"output_directory = {out_dir}\n")
-            else:
-                fout.write(line)
+            elif key.startswith("center_"):
+                center[key] = float(val)
+            elif key.startswith("size_"):
+                size[key] = float(val)
 
-    log_file = tmp_dir / f"docking_gpu{gpu_id}.log"
-    cmd = f"CUDA_VISIBLE_DEVICES={gpu_id} {ENV_SETUP}; {vina_bin} --config {batch_cfg}"
+    if not (receptor and lig_dir and out_dir):
+        return
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ligands = sorted(lig_dir.glob("*.pdbqt"))
+
+    if test_run:
+        ligands = ligands[:1]  # only first ligand
+
+    for i, lig in enumerate(ligands):
+        output_file = out_dir / f"{lig.stem}_out.pdbqt"
+        yield {
+            "receptor": str(receptor.resolve()),
+            "ligand": str(lig.resolve()),
+            "output_file": str(output_file.resolve()),
+            "center_x": center.get("center_x"),
+            "center_y": center.get("center_y"),
+            "center_z": center.get("center_z"),
+            "size_x": size.get("size_x"),
+            "size_y": size.get("size_y"),
+            "size_z": size.get("size_z"),
+            "threads": threads,
+            "ligand_index": i
+        }
+
+# --------------------- Job execution ---------------------
+def run_job(job, vina_bin, gpu_id):
+    """Run QuickVina2-GPU for one ligand."""
+    receptor = job["receptor"]
+    ligand = job["ligand"]
+    output_file = job["output_file"]
+
+    out_dir = Path(output_file).parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    log_dir = out_dir / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{Path(ligand).stem}_gpu{gpu_id}.log"
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+    cmd = (
+        f"{ENV_SETUP}; {vina_bin} "
+        f"--receptor {receptor} "
+        f"--ligand {ligand} "
+        f"--out {output_file} "
+        f"--center_x {job['center_x']} --center_y {job['center_y']} --center_z {job['center_z']} "
+        f"--size_x {job['size_x']} --size_y {job['size_y']} --size_z {job['size_z']} "
+        f"--thread {job['threads']}"
+    )
+
+    start = time.time()
     subprocess.call(cmd, shell=True, stdout=open(log_file, "w"),
                     stderr=subprocess.STDOUT, executable="/bin/bash")
+    end = time.time()
 
-    return len(batch_ligs)
+    return {
+        **job,
+        "gpu_id": gpu_id,
+        "log_file": str(log_file.resolve()),
+        "runtime_s": round(end - start, 2)
+    }
 
 # --------------------- Main ---------------------
 def main():
     args = parse_args()
-    num_gpus = args.gpus or detect_num_gpus()
-    vina_bin = Path(args.vina_bin).resolve()
-    if not vina_bin.exists():
-        raise FileNotFoundError(f"QuickVina2-GPU binary not found: {vina_bin}")
-
     df = pd.read_csv(args.csv)
 
-    # Prepare all batches
-    all_batches = list(iter_batches(df, args.batch_size))
-    total_ligands = sum(len(batch) for _, _, batch in all_batches)
-    total_batches = len(all_batches)
+    # Gather jobs
+    configs = []
+    for _, row in df.iterrows():
+        for c in ("config_actives", "config_inactives"):
+            if row.get(c) and Path(row[c]).exists():
+                configs.append(row[c])
 
-    # Assign batches round-robin to GPUs
-    tasks = [
-        (cfg, batch_idx, batch, str(vina_bin), i % num_gpus, Path(args.scratch))
-        for i, (cfg, batch_idx, batch) in enumerate(all_batches)
-    ]
+    all_jobs = []
+    for cfg in configs:
+        all_jobs.extend(list(expand_config(cfg, args.threads, test_run=args.test_run)))
 
-    # Run with tqdm process_map (batch-level bar)
-    results = process_map(run_batch, tasks, max_workers=num_gpus,
-                          total=total_batches, unit="batch", desc="Docking",
-                          chunksize=10)
+    if args.dry_run:
+        all_jobs = all_jobs[:args.dry_run]
 
-    print(f"\nDocking finished: {sum(results)}/{total_ligands} ligands processed in {total_batches} batches")
+    print(f"📋 Prepared {len(all_jobs)} ligand jobs from {len(configs)} configs.")
+
+    # Run jobs sequentially
+    manifests = {}
+    files = {}
+    with tqdm(total=len(all_jobs), desc="Docking", unit="ligand") as pbar:
+        for job in all_jobs:
+            result = run_job(job, str(Path(args.vina_bin).resolve()), args.gpu_id)
+
+            out_file = Path(result["output_file"])
+            manifest_path = out_file.parent / "manifest.csv"
+            if manifest_path not in manifests:
+                f = open(manifest_path, "w", newline="")
+                files[manifest_path] = f
+                writer = csv.DictWriter(f, fieldnames=list(result.keys()))
+                writer.writeheader()
+                manifests[manifest_path] = writer
+
+            manifests[manifest_path].writerow(result)
+            files[manifest_path].flush()
+            pbar.update(1)
+
+    for f in files.values():
+        f.close()
+
+    print("✅ Docking complete. Manifests written per output folder.")
 
 if __name__ == "__main__":
     main()
