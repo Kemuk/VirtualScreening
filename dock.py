@@ -43,7 +43,7 @@ def parse_args():
     p.add_argument("--csv", default="LIT_PCBA/vina_boxes.csv")
     p.add_argument("--prepare_master", action="store_true")
     p.add_argument("--master_manifest", default="LIT_PCBA/master_manifest.csv")
-    p.add_argument("--shard_total", type=int, default=1)
+    p.add_argument("--shard_total", type=int, default=100)
     p.add_argument("--task_id", type=int, default=-1)
     p.add_argument("--mode", choices=("cpu","gpu"), default="gpu")
     p.add_argument("--vina_bin", default="vina-gpu-dev/QuickVina2-GPU-2-1")
