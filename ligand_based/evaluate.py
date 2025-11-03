@@ -3,44 +3,36 @@
 import os, sys, math, subprocess
 import numpy as np
 import pandas as pd
-
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolDescriptors
 from sklearn.metrics import roc_curve, auc, precision_recall_curve
-
+from scipy.stats import mannwhitneyu
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 from multiprocessing import cpu_count
 from functools import partial
 
-# optional RDKit scoring helpers (bedroc, enrichment) -- let import fail if unavailable
 try:
     from rdkit.ML.Scoring import Scoring as RDScoring
 except Exception:
     RDScoring = None
 
-# descriptor sizes
 USR_N = 12
 USRCAT_N = 60
 ES_N = 15
 
-# -------------------------
-# small helper: read master CSV and compress to npz
-# -------------------------
 def safe_array(df, cols, n):
-    import numpy as _np
     missing = [c for c in cols if c not in df.columns]
     if missing:
-        return _np.full((len(df), n), _np.nan, dtype=float)
-    a = df[cols].astype(float).replace([_np.inf, -_np.inf], _np.nan).to_numpy()
+        return np.full((len(df), n), np.nan, dtype=float)
+    a = df[cols].astype(float).replace([np.inf, -np.inf], np.nan).to_numpy()
     if a.shape[1] != n:
-        out = _np.full((len(df), n), _np.nan, dtype=float)
+        out = np.full((len(df), n), np.nan, dtype=float)
         m = min(n, a.shape[1])
         out[:, :m] = a[:, :m]
         return out
     return a
 
-# --- WORKER FUNCTION ---
 def process_chunk(chunk_df, usr_cols, usrcat_cols, es_cols):
     ids_arr = chunk_df.get('id', pd.Series([str(i) for i in range(len(chunk_df))])).astype(str).values
     smiles_arr = chunk_df.get('smiles', pd.Series(['']*len(chunk_df))).astype(str).values
@@ -53,7 +45,6 @@ def process_chunk(chunk_df, usr_cols, usrcat_cols, es_cols):
     del chunk_df
     return (ids_arr, smiles_arr, labels_arr, targets_arr, refs_arr, usr_arr, usrcat_arr, es_arr)
 
-# minimal mol2 -> descriptors. Let failures propagate.
 def mol2_descriptors_from_file(path):
     m = Chem.MolFromMol2File(path, removeHs=False)
     if m is None:
@@ -83,84 +74,116 @@ def mol2_descriptors_from_file(path):
         es = [float('nan')] * ES_N
     return np.array(usr, dtype=float), np.array(ucat, dtype=float), np.array(es, dtype=float)
 
-# -------------------------
-# metrics
-# -------------------------
 def compute_point_metrics(labels, scores, higher_is_better=True):
+    """
+    Compute various classification and ranking metrics for virtual screening evaluation.
+    
+    Metrics computed:
+    - ROC-AUC: Area Under the Receiver Operating Characteristic curve (standard AUC)
+      Measures the ability to rank actives higher than inactives across all thresholds
+    - PR-AUC: Area Under the Precision-Recall curve
+      More informative for imbalanced datasets (typical in virtual screening)
+    - BEDROC: Boltzmann-Enhanced Discrimination of ROC
+      Emphasizes early recognition of actives
+    - EF (Enrichment Factor): Ratio of actives found vs random selection at top X%
+    - NEF (Normalized EF): EF normalized by maximum possible enrichment
+    
+    Args:
+        labels: Binary labels (1=active, 0=inactive)
+        scores: Predicted scores (interpretation depends on higher_is_better)
+        higher_is_better: If True, higher scores indicate better compounds
+    
+    Returns:
+        Dictionary of metric values
+    """
     labels = np.asarray(labels).astype(int)
     scores = np.asarray(scores).astype(float)
     
-    # --- ADDED CHECK ---
-    # Handle NaN scores, which can come from failed descriptor calcs
     valid_mask = ~np.isnan(scores)
-    if np.sum(valid_mask) < 2: # Not enough data to score
+    if np.sum(valid_mask) < 2:
         return {"ROC-AUC": np.nan, "PR-AUC": np.nan, "BEDROC(20)": np.nan,
-                "NEF1%": np.nan, "NEF5%": np.nan, "NEF10%": np.nan}
+                "NEF1%": np.nan, "NEF5%": np.nan, "NEF10%": np.nan, 
+                "EF1%": np.nan, "EF5%": np.nan, "EF10%": np.nan}
     labels = labels[valid_mask]
     scores = scores[valid_mask]
-    # --- END CHECK ---
 
     if np.unique(labels).size < 2:
         return {"ROC-AUC": np.nan, "PR-AUC": np.nan, "BEDROC(20)": np.nan,
-                "NEF1%": np.nan, "NEF5%": np.nan, "NEF10%": np.nan}
+                "NEF1%": np.nan, "NEF5%": np.nan, "NEF10%": np.nan,
+                "EF1%": np.nan, "EF5%": np.nan, "EF10%": np.nan}
+    
+    # ROC-AUC: Standard AUC metric for classification
     try:
-        fpr,tpr,_ = roc_curve(labels, scores)
-        roc_auc = auc(fpr,tpr)
+        fpr, tpr, _ = roc_curve(labels, scores)
+        roc_auc = auc(fpr, tpr)
     except Exception:
         roc_auc = np.nan
+    
+    # PR-AUC: Precision-Recall AUC (better for imbalanced data)
+    # Note: sklearn's precision_recall_curve returns (precision, recall, thresholds)
+    # where precision[i] is the precision at threshold[i] and recall[i] is the recall
     try:
-        prec,rec,_ = precision_recall_curve(labels, scores)
-        pr_auc = auc(rec,prec)
+        prec, rec, _ = precision_recall_curve(labels, scores)
+        # Compute AUC of the precision-recall curve
+        # This is correct: we integrate precision over recall
+        pr_auc = auc(rec, prec)
     except Exception:
         pr_auc = np.nan
+    
+    bed, nef1, nef5, nef10 = np.nan, np.nan, np.nan, np.nan
+    ef1, ef5, ef10 = np.nan, np.nan, np.nan
+    
     if RDScoring is not None:
-        # RDKit scoring tools need scores to be higher-is-better.
-        # If ours is lower-is-better (like distance), we must invert it.
         if not higher_is_better:
             scores = -scores
-            
         arr = [[float(s), bool(y)] for s,y in zip(scores, labels)]
         try:
             bed = float(RDScoring.CalcBEDROC(arr, 1, 20.0))
         except Exception:
-            bed = np.nan
+            pass
         try:
-            efs = RDScoring.CalcEnrichment(arr, 1, [0.01,0.05,0.10])
-            ef1 = float(efs[0])
-            ef5 = float(efs[1])
-            ef10 = float(efs[2])
+            efs = RDScoring.CalcEnrichment(arr, 1, [0.01, 0.05, 0.10])
+            ef1, ef5, ef10 = float(efs[0]), float(efs[1]), float(efs[2])
             n = len(labels); npos = int(labels.sum())
+            
             def nef_from_ef(ef, frac):
                 top_n = max(1, math.ceil(n*frac))
                 base = npos / n if n>0 else 0
                 if base <= 0: return np.nan
                 ef_max = (min(npos, top_n)/top_n) / base
                 return ef/ef_max if ef_max>0 else np.nan
+            
             nef1 = nef_from_ef(ef1, 0.01)
             nef5 = nef_from_ef(ef5, 0.05)
             nef10 = nef_from_ef(ef10, 0.10)
         except Exception:
-            bed, nef1, nef5, nef10 = np.nan, np.nan, np.nan, np.nan
-    else:
-        bed, nef1, nef5, nef10 = np.nan, np.nan, np.nan, np.nan
+            pass
 
     return {"ROC-AUC": float(roc_auc), "PR-AUC": float(pr_auc), "BEDROC(20)": float(bed),
-            "NEF1%": float(nef1), "NEF5%": float(nef5), "NEF10%": float(nef10)}
+            "NEF1%": float(nef1), "NEF5%": float(nef5), "NEF10%": float(nef10),
+            "EF1%": float(ef1), "EF5%": float(ef5), "EF10%": float(ef10)}
 
-
-# --- NEW METRIC FUNCTION ---
 def euclidean_dist_matrix(vec_ref, mat):
-    """Calculates Euclidean distance between a 1D ref vector and rows of a 2D matrix."""
     if vec_ref is None or np.isnan(vec_ref).any():
         return np.full((mat.shape[0],), np.nan, dtype=float)
-    # Use broadcasting to calculate difference, then norm along the feature axis
     return np.linalg.norm(mat - vec_ref, axis=1)
-# --- END NEW METRIC FUNCTION ---
 
+def bootstrap_ci(values, n_bootstrap=1000, ci=95, statistic=np.mean):
+    """Calculate bootstrap confidence interval using percentile method."""
+    values = values[~np.isnan(values)]
+    if len(values) < 2:
+        return np.nan, np.nan
+    
+    np.random.seed(42)
+    bootstrap_stats = []
+    for _ in range(n_bootstrap):
+        sample = np.random.choice(values, size=len(values), replace=True)
+        bootstrap_stats.append(statistic(sample))
+    
+    lower = np.percentile(bootstrap_stats, (100 - ci) / 2)
+    upper = np.percentile(bootstrap_stats, 100 - (100 - ci) / 2)
+    return lower, upper
 
-# -------------------------
-# main
-# -------------------------
 def main():
     base = "." 
     outdir = os.path.join(base, "output")
@@ -184,9 +207,8 @@ def main():
             try: os.remove(npz_path)
             except OSError: pass
             return main()
-            
     else:
-        print(f"Cache not found. Building from {master_csv} using parallel chunking...")
+        print(f"Cache not found. Building from {master_csv}...")
         if not os.path.exists(master_csv):
             raise SystemExit(f"Master CSV not found: {master_csv}")
 
@@ -197,24 +219,17 @@ def main():
         all_cols = core_cols + USR_cols + USRCAT_cols + ES_cols
         
         chunksize = 100_000
-        
         try:
             chunk_iter = pd.read_csv(master_csv, dtype=str, keep_default_na=False,
                                      usecols=lambda c: c in all_cols, chunksize=chunksize)
         except ValueError:
-            print(f"Warning: 'usecols' failed. Loading full CSV in chunks...", file=sys.stderr)
             chunk_iter = pd.read_csv(master_csv, dtype=str, keep_default_na=False, chunksize=chunksize)
 
         n_workers = cpu_count()
-        print(f"Starting parallel processing with {n_workers} workers...")
-        
         worker_func = partial(process_chunk, usr_cols=USR_cols, 
                               usrcat_cols=USRCAT_cols, es_cols=ES_cols)
-
         results = process_map(worker_func, chunk_iter, 
-                              max_workers=n_workers, chunksize=1, desc="Processing CSV chunks")
-        
-        print("All chunks processed. Concatenating arrays...")
+                              max_workers=n_workers, chunksize=1, desc="Processing CSV")
         
         all_results = list(zip(*results))
         ids = np.concatenate(all_results[0])
@@ -225,7 +240,6 @@ def main():
         usr = np.concatenate(all_results[5], axis=0)
         usrcat = np.concatenate(all_results[6], axis=0)
         es = np.concatenate(all_results[7], axis=0)
-        
         del results, all_results
         
         os.makedirs(outdir, exist_ok=True)
@@ -235,10 +249,6 @@ def main():
     unique_targets = np.unique(targets)
     ref_desc = {}
     print(f"Precomputing reference descriptors for {len(unique_targets)} targets...")
-    
-    # --- ADDED DEBUGGING ---
-    debug_count = 0
-    # --- END DEBUGGING ---
 
     for t in tqdm(unique_targets, desc="Precomputing refs"):
         mask = (targets == t)
@@ -250,37 +260,23 @@ def main():
         try:
             u_r, uc_r, es_r = mol2_descriptors_from_file(ref_path)
             ref_desc[t] = (u_r, uc_r, es_r)
-            
-            # --- ADDED DEBUGGING ---
-            if debug_count < 3: # Print info for the first 3 valid targets
-                print(f"\nDEBUG: Target {t}")
-                print(f"  Ref path: {ref_path}")
-                print(f"  USR mean: {np.mean(u_r)}, USRCAT mean: {np.mean(uc_r)}, ES mean: {np.mean(es_r)}")
-                print(f"  USR norm: {np.linalg.norm(u_r)}, USRCAT norm: {np.linalg.norm(uc_r)}, ES norm: {np.linalg.norm(es_r)}")
-                debug_count += 1
-            # --- END DEBUGGING ---
-
         except Exception as e:
-            print(f"Warning: Failed to compute descriptors for target {t} (path: {ref_path}). Error: {e}", file=sys.stderr)
+            print(f"Warning: Failed for target {t}: {e}", file=sys.stderr)
             ref_desc[t] = (None, None, None)
 
     print("Building scores per compound...")
     rows = []
     for i in tqdm(range(len(ids)), desc="Building scores"):
-        _id = ids[i]
-        prot = targets[i]
-        uref, ucr, esr = ref_desc.get(prot, (None,None,None))
-        row = {
-            "id": _id,
+        uref, ucr, esr = ref_desc.get(targets[i], (None,None,None))
+        rows.append({
+            "id": ids[i],
             "smiles": smiles[i],
-            "label": int(labels[i]),
-            "Protein_ID": prot,
-            # --- MODIFIED: Call new function ---
+            "is_active": int(labels[i]),
+            "Protein_ID": targets[i],
             "USR_score": float(euclidean_dist_matrix(uref, usr[i:i+1])[0]),
             "USRCAT_score": float(euclidean_dist_matrix(ucr, usrcat[i:i+1])[0]),
             "Electroshape_score": float(euclidean_dist_matrix(esr, es[i:i+1])[0]),
-        }
-        rows.append(row)
+        })
     scores_df = pd.DataFrame(rows)
     scores_csv = os.path.join(outdir, "scores.csv")
     scores_df.to_csv(scores_csv, index=False)
@@ -288,7 +284,6 @@ def main():
 
     print("Calculating per-target metrics...")
     methods = {
-        # --- MODIFIED: higher_is_better is now False ---
         "USR": ("USR_score", False),
         "USRCAT": ("USRCAT_score", False),
         "Electroshape": ("Electroshape_score", False)
@@ -297,28 +292,113 @@ def main():
     for t in tqdm(unique_targets, desc="Per-target metrics"):
         msk = (scores_df["Protein_ID"] == t)
         sub = scores_df.loc[msk]
-        lab = sub["label"].astype(int).values
-        row = {"Protein_ID": t, "N Actives": int(lab.sum()), "N Compounds": int(msk.sum())}
+        lab = sub["is_active"].astype(int).values 
+        row = {"Protein_ID": t, "N_Actives": int(lab.sum()), "N_Compounds": int(msk.sum())}
         for mname, (col, hib) in methods.items():
             vals = sub[col].astype(float).values
-            metrics = compute_point_metrics(lab, vals, higher_is_better=hib) # `hib` is now False
+            metrics = compute_point_metrics(lab, vals, higher_is_better=hib)
             for k,v in metrics.items():
-                row[f"{mname} {k}"] = (f"{v:.3f}" if (v==v) else "nan")
-                row[f"{mname} {k}_value"] = v
+                row[f"{mname}_{k}"] = v
         per_rows.append(row)
     per_df = pd.DataFrame(per_rows)
     per_df.to_csv(os.path.join(outdir, "per_target_metrics.csv"), index=False)
     print("Wrote per_target_metrics.csv")
 
-    print("Calculating global metrics...")
-    global_rows = []
-    labels_all = scores_df["label"].astype(int).values
-    for mname, (col, hib) in methods.items():
-        vals = scores_df[col].astype(float).values
-        metrics = compute_point_metrics(labels_all, vals, higher_is_better=hib) # `hib` is now False
-        global_rows.append({"Method": mname, **metrics})
-    pd.DataFrame(global_rows).set_index("Method").to_csv(os.path.join(outdir, "global_metrics.csv"))
-    print("Wrote global_metrics.csv")
+    print("Calculating global metrics with bootstrap CIs and pairwise p-values...")
+    metric_names = ["ROC-AUC", "PR-AUC", "BEDROC(20)", "NEF1%", "NEF5%", "NEF10%", 
+                    "EF1%", "EF5%", "EF10%"]
+    
+    # Collect data for each method
+    method_data = {}
+    for mname in methods.keys():
+        method_data[mname] = {}
+        for metric in metric_names:
+            val_col = f"{mname}_{metric}"
+            if val_col in per_df.columns:
+                vals = per_df[val_col].dropna().values
+                method_data[mname][metric] = vals
+    
+    # Build enhanced table with methods as columns and pairwise comparisons
+    method_names = list(methods.keys())
+    table_rows = []
+    
+    for metric in metric_names:
+        row = {"Metric": metric}
+        
+        # Add median and CI for each method
+        for mname in methods.keys():
+            if metric in method_data[mname]:
+                vals = method_data[mname][metric]
+                if len(vals) > 0:
+                    median_val = np.median(vals)
+                    ci_low, ci_high = bootstrap_ci(vals, n_bootstrap=1000, ci=95, statistic=np.median)
+                    row[mname] = f"{median_val:.3f} [{ci_low:.3f}-{ci_high:.3f}]"
+                else:
+                    row[mname] = "N/A"
+            else:
+                row[mname] = "N/A"
+        
+        # Add pairwise comparison columns (p-values and significance)
+        for i, method1 in enumerate(method_names):
+            for method2 in method_names[i+1:]:
+                comparison_name = f"{method1}_vs_{method2}"
+                if metric in method_data[method1] and metric in method_data[method2]:
+                    vals1 = method_data[method1][metric]
+                    vals2 = method_data[method2][metric]
+                    
+                    if len(vals1) > 0 and len(vals2) > 0:
+                        try:
+                            stat, pval = mannwhitneyu(vals1, vals2, alternative='two-sided')
+                            row[f"{comparison_name}_pvalue"] = f"{pval:.4f}"
+                            row[f"{comparison_name}_Significant"] = "Yes" if pval < 0.05 else "No"
+                        except Exception as e:
+                            row[f"{comparison_name}_pvalue"] = "N/A"
+                            row[f"{comparison_name}_Significant"] = "N/A"
+                    else:
+                        row[f"{comparison_name}_pvalue"] = "N/A"
+                        row[f"{comparison_name}_Significant"] = "N/A"
+                else:
+                    row[f"{comparison_name}_pvalue"] = "N/A"
+                    row[f"{comparison_name}_Significant"] = "N/A"
+        
+        table_rows.append(row)
+    
+    global_df = pd.DataFrame(table_rows)
+    global_df.to_csv(os.path.join(outdir, "global_metrics.csv"), index=False)
+    print("Wrote global_metrics.csv with pairwise p-values and significance tests")
+    
+    # Also save the detailed Mann-Whitney tests in a separate file
+    print("Saving detailed Mann-Whitney U tests...")
+    method_names = list(methods.keys())
+    mw_results = []
+    
+    for metric in metric_names:
+        for i, method1 in enumerate(method_names):
+            for method2 in method_names[i+1:]:
+                if metric in method_data[method1] and metric in method_data[method2]:
+                    vals1 = method_data[method1][metric]
+                    vals2 = method_data[method2][metric]
+                    
+                    if len(vals1) > 0 and len(vals2) > 0:
+                        try:
+                            stat, pval = mannwhitneyu(vals1, vals2, alternative='two-sided')
+                            mw_results.append({
+                                "Metric": metric,
+                                "Method_1": method1,
+                                "Method_2": method2,
+                                "Median_1": np.median(vals1),
+                                "Median_2": np.median(vals2),
+                                "U_statistic": stat,
+                                "p_value": pval,
+                                "Significant": "Yes" if pval < 0.05 else "No"
+                            })
+                        except:
+                            pass
+    
+    if mw_results:
+        mw_df = pd.DataFrame(mw_results)
+        mw_df.to_csv(os.path.join(outdir, "mann_whitney_tests.csv"), index=False)
+        print("Wrote mann_whitney_tests.csv")
 
     print("Running plots.py...")
     try:
