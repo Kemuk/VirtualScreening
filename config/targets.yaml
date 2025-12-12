@@ -1,0 +1,58 @@
+# Target-level configuration for Virtual Screening Pipeline
+# This replaces the CSV-based vina_boxes.csv approach
+#
+# Each target should have:
+#   - receptor_mol2: Path to receptor MOL2 file (relative to project root)
+#   - actives_smi: Path to actives SMILES file
+#   - inactives_smi: Path to inactives SMILES file
+#   - box_center: Docking box center coordinates (x, y, z)
+#   - box_size: (Optional) Override default box size from config.yaml
+#
+# Box centers can be computed using workflow/scripts/update_box_centers.py
+# or manually specified based on known binding sites.
+
+targets:
+  # Example targets from LIT-PCBA dataset
+  # Update these with actual values when LIT_PCBA data is available
+
+  ADRB2:
+    receptor_mol2: "LIT_PCBA/ADRB2/ADRB2_protein.mol2"
+    actives_smi: "LIT_PCBA/ADRB2/actives.smi"
+    inactives_smi: "LIT_PCBA/ADRB2/inactives.smi"
+    box_center:
+      x: 10.5
+      y: 20.3
+      z: 15.7
+    # box_size inherits from config.yaml unless overridden here
+    # box_size:
+    #   x: 30.0
+    #   y: 30.0
+    #   z: 30.0
+
+  ALDH1:
+    receptor_mol2: "LIT_PCBA/ALDH1/ALDH1_protein.mol2"
+    actives_smi: "LIT_PCBA/ALDH1/actives.smi"
+    inactives_smi: "LIT_PCBA/ALDH1/inactives.smi"
+    box_center:
+      x: 15.2
+      y: 18.9
+      z: 22.1
+
+  ESR1_ant:
+    receptor_mol2: "LIT_PCBA/ESR1_ant/ESR1_ant_protein.mol2"
+    actives_smi: "LIT_PCBA/ESR1_ant/actives.smi"
+    inactives_smi: "LIT_PCBA/ESR1_ant/inactives.smi"
+    box_center:
+      x: 8.7
+      y: 12.4
+      z: 19.8
+
+  # Add more targets as needed...
+  # FEN1:
+  #   receptor_mol2: "LIT_PCBA/FEN1/FEN1_protein.mol2"
+  #   actives_smi: "LIT_PCBA/FEN1/actives.smi"
+  #   inactives_smi: "LIT_PCBA/FEN1/inactives.smi"
+  #   box_center:
+  #     x: 0.0
+  #     y: 0.0
+  #     z: 0.0
