@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=chunks_pk_min
+#SBATCH --output=logs/chunks_pk_%A_%a.out
+#SBATCH --error=logs/chunks_pk_%A_%a.err
+#SBATCH --time=01:00:00
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16G
+#SBATCH --array=0-1000
+#SBATCH --requeue
+
+set -euo pipefail
+set -x
+export LC_ALL=C
+
+module purge || true
+module load parallel || true
+module load Anaconda3 || true
+source activate "/data/stat-cadd/reub0582/vscreen_env" || { echo "ERROR: failed to activate conda env"; exit 99; }
+
+cd "${SLURM_SUBMIT_DIR}/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 99; }
+
+CHUNKS_DIR="${CHUNKS_DIR:-chunks}"
+mkdir -p "$CHUNKS_DIR" ".sentinels/chunks_pk_min" "logs"
+
+mapfile -t CHUNKS < <(ls -1 "$CHUNKS_DIR"/chunk_*.tsv 2>/dev/null || true)
+NCHUNKS=${#CHUNKS[@]}
+(( NCHUNKS == 0 )) && { echo "No chunk_*.tsv present under $CHUNKS_DIR; exiting."; exit 0; }
+(( SLURM_ARRAY_TASK_ID >= NCHUNKS )) && { touch ".sentinels/chunks_pk_min/task_${SLURM_ARRAY_TASK_ID}.done"; exit 0; }
+
+CHUNK_FILE="${CHUNKS[$SLURM_ARRAY_TASK_ID]}"
+OUT_CSV="${CHUNK_FILE%.tsv}.csv"
+
+echo "unique_id,Protein_ID,sdf_file,pdb_file,pK,MW,LogP,HBD,HBA,is_active,pred_active" > "$OUT_CSV"
+
+# --- Helpers ---
+extract_pk() {
+  awk '
+    /^[[:space:]]*1[[:space:]]/ {print $2; exit}
+    /REMARK[[:space:]]+VINA[[:space:]]+RESULT/ {print $4; exit}
+  ' "$1" | tr -d '\r'
+}
+
+get_desc() {
+  local sdf="$1" key="$2"
+  [[ -f "$sdf" ]] || { echo ""; return 0; }
+  obabel "$sdf" -otxt --title "" --append "$key" 2>/dev/null | head -n1 | tr -d '\r'
+}
+
+collect_props() {
+  local sdf="$1"; shift
+  local vals=() key val
+  for key in "$@"; do
+    val="$(get_desc "$sdf" "$key")"
+    vals+=( "$val" )
+  done
+  printf "%s\n" "${vals[@]}"
+}
+
+with_root_prefix() {
+  local p="$1"
+  p="${p#$PWD/}"; p="${p#./}"; p="${p#LIT_PCBA/}"
+  printf "LIT_PCBA/%s" "$p"
+}
+
+resolve_protein_pdb() {
+  local protein_dir="$1" cfg_path="$2"
+  local base stem match
+  base="$(basename "$cfg_path")"; stem="${base%.*}"
+  match="$(compgen -G "$protein_dir/${stem}"*.pdb | head -n1 || true)"
+  if [[ -n "$match" ]]; then
+    echo "$match"
+  else
+    compgen -G "$protein_dir/"*.pdb | head -n1 || true
+  fi
+}
+
+process() {
+  local cfg="$1" input_pdbqt="$2"
+  cfg="${cfg%$'\r'}"; input_pdbqt="${input_pdbqt%$'\r'}"
+  [[ -f "$input_pdbqt" ]] || return
+
+  local protein_dir protein_id lig_id mode is_active logf pk lig_sdf prot_pdb
+  protein_dir=$(dirname "$cfg")
+  protein_id=$(basename "$protein_dir")
+  lig_id=$(basename "$input_pdbqt" .pdbqt)
+
+  if [[ "$input_pdbqt" == *"/actives/"* ]]; then mode="actives"; is_active=1; else mode="inactives"; is_active=0; fi
+
+  logf="$protein_dir/docked_vina/$mode/log/${lig_id}.log"
+  [[ -f "$logf" ]] || return
+
+  pk=$(extract_pk "$logf")
+  [[ -n "$pk" ]] || return
+
+  lig_sdf="./${protein_id}/docked_sdf/${mode}/${lig_id}.sdf"
+  prot_pdb="$(resolve_protein_pdb "./${protein_id}" "$cfg")"
+
+  readarray -t props < <(collect_props "$lig_sdf" MW logP HBD HBA1)
+  local mw="${props[0]:-}" logp="${props[1]:-}" hbd="${props[2]:-}" hba="${props[3]:-}"
+
+  local csv_lig csv_pdb
+  csv_lig="$(with_root_prefix "$lig_sdf")"
+  csv_pdb="$(with_root_prefix "${prot_pdb:-}")"
+
+  printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\n" \
+    "$lig_id" "$protein_id" "$csv_lig" "$csv_pdb" "$pk" "$mw" "$logp" "$hbd" "$hba" "$is_active"
+}
+export -f process extract_pk get_desc collect_props resolve_protein_pdb with_root_prefix
+
+# Run in parallel
+parallel -j "$SLURM_CPUS_PER_TASK" --colsep $'\t' process {1} {2} < "$CHUNK_FILE" >> "$OUT_CSV"
+echo "Wrote: $OUT_CSV"
+
+# Merge all into final CSV (last array task only)
+if [[ "${SLURM_ARRAY_TASK_ID}" -eq $((NCHUNKS - 1)) ]]; then
+  echo "Merging all chunk CSVs into final aev_plig.csv.gz..."
+  mapfile -t PARTS < <(ls -1 "$CHUNKS_DIR"/chunk_*.csv 2>/dev/null)
+  if (( ${#PARTS[@]} > 0 )); then
+    head -n1 "${PARTS[0]}" > aev_plig.csv
+    tail -n+2 -q "${PARTS[@]}" >> aev_plig.csv
+    gzip -f aev_plig.csv
+    echo "Final: aev_plig.csv.gz"
+  fi
+fi
+
+touch ".sentinels/chunks_pk_min/task_${SLURM_ARRAY_TASK_ID}.done"
