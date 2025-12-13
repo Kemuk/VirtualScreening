@@ -68,6 +68,9 @@ rule all:
         # Conversion checkpoint (triggers PDBQT → SDF conversion)
         conversion_checkpoint = "data/logs/conversion/conversion_checkpoint.done",
 
+        # Rescoring checkpoint (triggers AEV-PLIG data preparation)
+        rescoring_checkpoint = "data/logs/rescoring/rescoring_checkpoint.done",
+
     message:
         "Virtual screening pipeline complete!"
 
@@ -128,7 +131,7 @@ include: "workflow/rules/docking.smk"
 include: "workflow/rules/conversion.smk"
 
 # Rescoring rules (AEV-PLIG)
-# include: "workflow/rules/rescoring.smk"
+include: "workflow/rules/rescoring.smk"
 
 # Ligand-based methods (optional)
 # include: "workflow/rules/ligand_based.smk"
