@@ -1,0 +1,239 @@
+"""
+Snakefile - Virtual Screening Pipeline
+
+A modular Snakemake workflow for structure-based virtual screening.
+
+Main stages:
+  1. Manifest generation (from targets.yaml)
+  2. Preparation (receptor and ligand conversion)
+  3. Docking (GPU or CPU)
+  4. Post-processing (PDBQT to SDF conversion)
+  5. Rescoring (AEV-PLIG)
+  6. Ligand-based methods (optional)
+
+Usage:
+  snakemake --cores 8                      # Local execution
+  snakemake --profile workflow/profiles/arc  # Cluster execution
+  snakemake -n                             # Dry-run
+"""
+
+import sys
+from pathlib import Path
+
+# Ensure we're running from project root
+workdir: str(Path(__file__).parent.parent)
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+configfile: "config/config.yaml"
+
+# Load common utilities
+include: "workflow/rules/common.smk"
+
+# =============================================================================
+# Global Variables
+# =============================================================================
+
+MANIFEST_PATH = Path(config['manifest_dir']) / 'manifest.parquet'
+TARGETS = get_targets()
+
+# =============================================================================
+# Main Target
+# =============================================================================
+
+rule all:
+    """
+    Default target: complete the full pipeline.
+
+    This rule defines the final outputs expected from the workflow.
+    Snakemake will work backwards to determine what needs to be run.
+    """
+    input:
+        # Manifest must exist
+        manifest = MANIFEST_PATH,
+
+        # All receptors should be prepared (placeholder - will add in later stages)
+        # receptors = expand("LIT_PCBA/{target}/receptor.pdbqt", target=TARGETS),
+
+    message:
+        "Virtual screening pipeline complete!"
+
+
+# =============================================================================
+# Manifest Generation
+# =============================================================================
+
+rule create_manifest:
+    """
+    Generate master manifest from targets.yaml configuration.
+
+    This scans the filesystem for existing SMILES files and outputs,
+    creating a comprehensive tracking table.
+
+    Output:
+        - data/master/manifest.parquet (29-column Parquet file)
+        - Backup of previous manifest (if exists)
+    """
+    input:
+        config_file = "config/config.yaml",
+        targets_file = "config/targets.yaml",
+
+    output:
+        manifest = MANIFEST_PATH,
+
+    log:
+        "data/logs/create_manifest.log"
+
+    conda:
+        "envs/vscreen.yaml"
+
+    params:
+        project_root = Path.cwd(),
+
+    shell:
+        """
+        python workflow/scripts/create_manifest.py \
+            --config {input.config_file} \
+            --targets {input.targets_file} \
+            --output {output.manifest} \
+            --project-root {params.project_root} \
+            2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Include Additional Rules
+# =============================================================================
+
+# Preparation rules (receptor and ligand conversion)
+# include: "workflow/rules/preparation.smk"
+
+# Docking rules (GPU and CPU)
+# include: "workflow/rules/docking.smk"
+
+# Conversion rules (PDBQT to SDF)
+# include: "workflow/rules/conversion.smk"
+
+# Rescoring rules (AEV-PLIG)
+# include: "workflow/rules/rescoring.smk"
+
+# Ligand-based methods (optional)
+# include: "workflow/rules/ligand_based.smk"
+
+
+# =============================================================================
+# Utility Rules
+# =============================================================================
+
+rule clean_logs:
+    """Remove log files."""
+    shell:
+        "rm -rf data/logs/*.log"
+
+
+rule backup_manifest:
+    """Create a timestamped backup of the current manifest."""
+    input:
+        manifest = MANIFEST_PATH
+
+    params:
+        backup_dir = Path(config['manifest_dir']) / 'backups'
+
+    run:
+        from datetime import datetime
+        import shutil
+
+        params.backup_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = params.backup_dir / f"manifest_{timestamp}.parquet"
+
+        shutil.copy2(input.manifest, backup_path)
+        print(f"Created backup: {backup_path}")
+
+
+rule show_manifest_stats:
+    """Display statistics about the current manifest."""
+    input:
+        manifest = MANIFEST_PATH
+
+    run:
+        import pandas as pd
+        import pyarrow.parquet as pq
+
+        df = pq.read_table(input.manifest).to_pandas()
+
+        print("\n" + "="*60)
+        print("MANIFEST STATISTICS")
+        print("="*60)
+        print(f"Total entries: {len(df)}")
+        print(f"Unique proteins: {df['protein_id'].nunique()}")
+        print(f"Unique ligands: {df['ligand_id'].nunique()}")
+        print()
+        print("By protein:")
+        print(df.groupby('protein_id').size().to_string())
+        print()
+        print("Pipeline progress:")
+        print(f"  Prepared:  {df['preparation_status'].sum():6d} / {len(df)} ({100*df['preparation_status'].mean():.1f}%)")
+        print(f"  Docked:    {df['docking_status'].sum():6d} / {len(df)} ({100*df['docking_status'].mean():.1f}%)")
+        print(f"  Rescored:  {df['rescoring_status'].sum():6d} / {len(df)} ({100*df['rescoring_status'].mean():.1f}%)")
+        print()
+        print("By class:")
+        actives = df[df['is_active']]
+        inactives = df[~df['is_active']]
+        print(f"  Actives:   {len(actives):6d}")
+        print(f"  Inactives: {len(inactives):6d}")
+        print("="*60 + "\n")
+
+
+rule validate_config:
+    """Validate configuration files."""
+    input:
+        config_file = "config/config.yaml",
+        targets_file = "config/targets.yaml",
+
+    run:
+        import yaml
+
+        # Load and validate config
+        with open(input.config_file) as f:
+            cfg = yaml.safe_load(f)
+
+        with open(input.targets_file) as f:
+            targets = yaml.safe_load(f)
+
+        errors = []
+
+        # Check required config keys
+        required_keys = ['dataset_dir', 'manifest_dir', 'targets_config', 'docking']
+        for key in required_keys:
+            if key not in cfg:
+                errors.append(f"Missing required key in config.yaml: {key}")
+
+        # Check targets
+        if 'targets' not in targets or not targets['targets']:
+            errors.append("No targets defined in targets.yaml")
+
+        # Validate each target
+        for target_id, target_cfg in targets.get('targets', {}).items():
+            required_target_keys = ['receptor_mol2', 'actives_smi', 'inactives_smi', 'box_center']
+            for key in required_target_keys:
+                if key not in target_cfg:
+                    errors.append(f"Target '{target_id}' missing required key: {key}")
+
+            # Check box_center has x, y, z
+            if 'box_center' in target_cfg:
+                bc = target_cfg['box_center']
+                for coord in ['x', 'y', 'z']:
+                    if coord not in bc:
+                        errors.append(f"Target '{target_id}' box_center missing: {coord}")
+
+        if errors:
+            print("\nCONFIGURATION ERRORS:")
+            for error in errors:
+                print(f"  ✗ {error}")
+            sys.exit(1)
+        else:
+            print("\n✓ Configuration validation passed!")
+            print(f"  Found {len(targets['targets'])} targets")
