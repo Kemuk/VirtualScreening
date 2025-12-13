@@ -62,6 +62,9 @@ rule all:
         # Preparation checkpoint (triggers ligand preparation)
         prep_checkpoint = "data/logs/preparation/ligands_checkpoint.done",
 
+        # Docking checkpoint (triggers docking)
+        docking_checkpoint = "data/logs/docking/docking_checkpoint.done",
+
     message:
         "Virtual screening pipeline complete!"
 
@@ -116,7 +119,7 @@ rule create_manifest:
 include: "workflow/rules/preparation.smk"
 
 # Docking rules (GPU and CPU)
-# include: "workflow/rules/docking.smk"
+include: "workflow/rules/docking.smk"
 
 # Conversion rules (PDBQT to SDF)
 # include: "workflow/rules/conversion.smk"
