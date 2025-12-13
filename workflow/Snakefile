@@ -65,6 +65,9 @@ rule all:
         # Docking checkpoint (triggers docking)
         docking_checkpoint = "data/logs/docking/docking_checkpoint.done",
 
+        # Conversion checkpoint (triggers PDBQT → SDF conversion)
+        conversion_checkpoint = "data/logs/conversion/conversion_checkpoint.done",
+
     message:
         "Virtual screening pipeline complete!"
 
@@ -122,7 +125,7 @@ include: "workflow/rules/preparation.smk"
 include: "workflow/rules/docking.smk"
 
 # Conversion rules (PDBQT to SDF)
-# include: "workflow/rules/conversion.smk"
+include: "workflow/rules/conversion.smk"
 
 # Rescoring rules (AEV-PLIG)
 # include: "workflow/rules/rescoring.smk"
