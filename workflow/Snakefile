@@ -54,8 +54,13 @@ rule all:
         # Manifest must exist
         manifest = MANIFEST_PATH,
 
-        # All receptors should be prepared (placeholder - will add in later stages)
-        # receptors = expand("LIT_PCBA/{target}/receptor.pdbqt", target=TARGETS),
+        # All receptors should be prepared
+        receptors = expand("{dataset}/{target}/receptor.pdbqt",
+                          dataset=config['dataset'],
+                          target=TARGETS),
+
+        # Preparation checkpoint (triggers ligand preparation)
+        prep_checkpoint = "data/logs/preparation/ligands_checkpoint.done",
 
     message:
         "Virtual screening pipeline complete!"
@@ -108,7 +113,7 @@ rule create_manifest:
 # =============================================================================
 
 # Preparation rules (receptor and ligand conversion)
-# include: "workflow/rules/preparation.smk"
+include: "workflow/rules/preparation.smk"
 
 # Docking rules (GPU and CPU)
 # include: "workflow/rules/docking.smk"
