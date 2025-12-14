@@ -123,19 +123,19 @@ rule create_manifest:
 # =============================================================================
 
 # Preparation rules (receptor and ligand conversion)
-include: "workflow/rules/preparation.smk"
+include: "rules/preparation.smk"
 
 # Docking rules (GPU and CPU)
-include: "workflow/rules/docking.smk"
+include: "rules/docking.smk"
 
 # Conversion rules (PDBQT to SDF)
-include: "workflow/rules/conversion.smk"
+include: "rules/conversion.smk"
 
 # Rescoring rules (AEV-PLIG)
-include: "workflow/rules/rescoring.smk"
+include: "rules/rescoring.smk"
 
 # Ligand-based methods (optional)
-# include: "workflow/rules/ligand_based.smk"
+# include: "rules/ligand_based.smk"
 
 
 # =============================================================================
