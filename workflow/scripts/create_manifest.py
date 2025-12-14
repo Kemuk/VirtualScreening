@@ -455,6 +455,7 @@ def filter_test_mode(entries: List[Dict], workflow_config: Dict) -> List[Dict]:
 
         print(f"  {protein_id}: {len(selected_actives)} actives + {len(selected_inactives)} inactives = {len(selected_actives) + len(selected_inactives)} total")
 
+    total_per_protein = actives_per_protein + inactives_per_protein
     print(f"\nTest mode: Filtered to {len(filtered_entries)} ligands (from {len(entries)} total)")
     print(f"  Targets: {len(by_protein)}")
     print(f"  Per target: up to {total_per_protein} ligands ({actives_per_protein} actives + {inactives_per_protein} inactives)")
