@@ -121,6 +121,8 @@ def sdf_to_pdbqt(
     cmd = [
         "obabel",
         str(sdf_path),
+        "-opdbqt",
+        "--gen3d",
         "-O", str(pdbqt_path),
         "-p", str(ph),
         "--partialcharge", partial_charge,
