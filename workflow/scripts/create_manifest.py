@@ -134,6 +134,15 @@ def generate_manifest_entries(
     default_box_size = workflow_config.get('default_box_size', {'x': 25.0, 'y': 25.0, 'z': 25.0})
     targets = targets_config.get('targets', {})
 
+    # Get mode and limits
+    mode = workflow_config.get('mode', 'test')
+    if mode == 'test':
+        max_actives = workflow_config.get('test', {}).get('actives_per_protein', 100)
+        max_inactives = workflow_config.get('test', {}).get('inactives_per_protein', 9900)
+    else:
+        max_actives = None  # No limit
+        max_inactives = None
+
     # Prepare all ligand tasks (combining actives and inactives)
     all_tasks = []
     for protein_id, target_config in targets.items():
@@ -148,12 +157,22 @@ def generate_manifest_entries(
         receptor_pdbqt = target_dir / "receptor.pdbqt"
         receptor_pdb = target_dir / "receptor.pdb"
 
-        # Combine actives and inactives into one list
+        # Combine actives and inactives into one list, with filtering for test mode
         ligands = []
+
+        # Load actives (with limit if in test mode)
+        actives_count = 0
         for ligand_id, smiles in parse_smiles_file(actives_smi):
-            ligands.append((ligand_id, smiles, True))  # is_active=True
+            if max_actives is None or actives_count < max_actives:
+                ligands.append((ligand_id, smiles, True))  # is_active=True
+                actives_count += 1
+
+        # Load inactives (with limit if in test mode)
+        inactives_count = 0
         for ligand_id, smiles in parse_smiles_file(inactives_smi):
-            ligands.append((ligand_id, smiles, False))  # is_active=False
+            if max_inactives is None or inactives_count < max_inactives:
+                ligands.append((ligand_id, smiles, False))  # is_active=False
+                inactives_count += 1
 
         # Create tasks for this target
         for ligand_id, smiles, is_active in ligands:
@@ -410,9 +429,8 @@ def filter_test_mode(entries: List[Dict], workflow_config: Dict) -> List[Dict]:
         Filtered list of entries
     """
     test_config = workflow_config.get('test', {})
-    total_per_protein = test_config.get('ligands_per_protein', 50)
-    actives_per_protein = test_config.get('actives_per_protein', 25)
-    inactives_per_protein = total_per_protein - actives_per_protein
+    actives_per_protein = test_config.get('actives_per_protein', 100)
+    inactives_per_protein = test_config.get('inactives_per_protein', 9900)
 
     # Group by protein
     from collections import defaultdict

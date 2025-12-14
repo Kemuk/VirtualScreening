@@ -15,8 +15,9 @@ mode: "test"  # Default to test mode
 # Test Mode Configuration
 # ------------------------
 test:
-  ligands_per_protein: 50        # Number of ligands to process per protein in test mode
-  actives_per_protein: 5         # Number of actives (rest will be inactives)
+  actives_per_protein: 100       # Number of actives per protein (if available)
+  inactives_per_protein: 9900    # Number of inactives per protein
+  # Total: 10,000 ligands per protein in test mode
 
 # Paths
 # -----
