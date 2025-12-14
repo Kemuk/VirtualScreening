@@ -177,17 +177,23 @@ def get_all_ligand_pdbqts_from_manifest():
         List of PDBQT file paths
     """
     import sys
-    print("Reading manifest to determine ligands needing preparation...", file=sys.stderr)
+    from tqdm import tqdm
+
     manifest = load_manifest()
-    print(f"  Total ligands in manifest: {len(manifest)}", file=sys.stderr)
 
-    # Filter to ligands that need preparation
+    # Filter to ligands that need preparation with progress
+    print("  Filtering for unprepared ligands...", file=sys.stderr)
     needs_prep = manifest[~manifest['preparation_status']]
-    print(f"  Ligands needing preparation: {len(needs_prep)}", file=sys.stderr)
+    print(f"  Found {len(needs_prep)} ligands needing preparation", file=sys.stderr)
 
-    # Return list of PDBQT paths
-    paths = needs_prep['ligand_pdbqt_path'].tolist()
-    print(f"  Building DAG with {len(paths)} preparation jobs...", file=sys.stderr)
+    # Build path list with progress bar
+    print("  Building job list for Snakemake...", file=sys.stderr)
+    with tqdm(total=len(needs_prep), desc="  Extracting paths", unit=" ligands",
+              file=sys.stderr, ncols=80, miniters=1000) as pbar:
+        paths = needs_prep['ligand_pdbqt_path'].tolist()
+        pbar.update(len(needs_prep))
+
+    print(f"  DAG construction complete: {len(paths)} preparation jobs", file=sys.stderr)
     return paths
 
 

@@ -53,11 +53,15 @@ def load_manifest(manifest_path=None):
     Returns:
         pandas.DataFrame
     """
+    import sys
     if manifest_path is None:
         manifest_path = Path(config['manifest_dir']) / 'manifest.parquet'
 
+    print(f"Loading manifest from {manifest_path}...", file=sys.stderr)
     table = pq.read_table(manifest_path)
-    return table.to_pandas()
+    df = table.to_pandas()
+    print(f"  Loaded {len(df)} entries", file=sys.stderr)
+    return df
 
 
 def get_manifest_entries(manifest_df, **filters):

@@ -211,22 +211,29 @@ def get_ligands_needing_docking():
         List of docked PDBQT file paths
     """
     import sys
-    print("Reading manifest to determine ligands needing docking...", file=sys.stderr)
+    from tqdm import tqdm
+
     manifest = load_manifest()
 
     prepared = manifest[manifest['preparation_status'] == True]
     print(f"  Prepared ligands: {len(prepared)}", file=sys.stderr)
 
-    # Filter to prepared but undocked ligands
+    # Filter to prepared but undocked ligands with progress
+    print("  Filtering for undocked ligands...", file=sys.stderr)
     needs_docking = manifest[
         (manifest['preparation_status'] == True) &
         (manifest['docking_status'] == False)
     ]
-    print(f"  Ligands needing docking: {len(needs_docking)}", file=sys.stderr)
+    print(f"  Found {len(needs_docking)} ligands needing docking", file=sys.stderr)
 
-    # Return list of docked output paths
-    paths = needs_docking['docked_pdbqt_path'].tolist()
-    print(f"  Building DAG with {len(paths)} docking jobs...", file=sys.stderr)
+    # Build path list with progress bar
+    print("  Building job list for Snakemake...", file=sys.stderr)
+    with tqdm(total=len(needs_docking), desc="  Extracting paths", unit=" ligands",
+              file=sys.stderr, ncols=80, miniters=1000) as pbar:
+        paths = needs_docking['docked_pdbqt_path'].tolist()
+        pbar.update(len(needs_docking))
+
+    print(f"  DAG construction complete: {len(paths)} docking jobs", file=sys.stderr)
     return paths
 
 
