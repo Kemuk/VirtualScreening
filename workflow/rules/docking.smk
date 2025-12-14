@@ -210,16 +210,24 @@ def get_ligands_needing_docking():
     Returns:
         List of docked PDBQT file paths
     """
+    import sys
+    print("Reading manifest to determine ligands needing docking...", file=sys.stderr)
     manifest = load_manifest()
+
+    prepared = manifest[manifest['preparation_status'] == True]
+    print(f"  Prepared ligands: {len(prepared)}", file=sys.stderr)
 
     # Filter to prepared but undocked ligands
     needs_docking = manifest[
         (manifest['preparation_status'] == True) &
         (manifest['docking_status'] == False)
     ]
+    print(f"  Ligands needing docking: {len(needs_docking)}", file=sys.stderr)
 
     # Return list of docked output paths
-    return needs_docking['docked_pdbqt_path'].tolist()
+    paths = needs_docking['docked_pdbqt_path'].tolist()
+    print(f"  Building DAG with {len(paths)} docking jobs...", file=sys.stderr)
+    return paths
 
 
 # =============================================================================

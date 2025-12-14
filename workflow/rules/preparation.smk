@@ -176,13 +176,19 @@ def get_all_ligand_pdbqts_from_manifest():
     Returns:
         List of PDBQT file paths
     """
+    import sys
+    print("Reading manifest to determine ligands needing preparation...", file=sys.stderr)
     manifest = load_manifest()
+    print(f"  Total ligands in manifest: {len(manifest)}", file=sys.stderr)
 
     # Filter to ligands that need preparation
     needs_prep = manifest[~manifest['preparation_status']]
+    print(f"  Ligands needing preparation: {len(needs_prep)}", file=sys.stderr)
 
     # Return list of PDBQT paths
-    return needs_prep['ligand_pdbqt_path'].tolist()
+    paths = needs_prep['ligand_pdbqt_path'].tolist()
+    print(f"  Building DAG with {len(paths)} preparation jobs...", file=sys.stderr)
+    return paths
 
 
 # =============================================================================
