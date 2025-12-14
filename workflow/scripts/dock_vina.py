@@ -88,7 +88,7 @@ def run_vina_docking(
         vina_dir = Path.cwd()
         vina_exec = vina_bin
 
-    # Build Vina command with absolute paths
+    # Build Vina command with common parameters (absolute paths)
     cmd = [
         vina_exec,
         "--receptor", str(receptor_abs),
@@ -100,16 +100,20 @@ def run_vina_docking(
         "--size_x", str(size_x),
         "--size_y", str(size_y),
         "--size_z", str(size_z),
-        "--exhaustiveness", str(exhaustiveness),
         "--num_modes", str(num_modes),
-        "--energy_range", str(energy_range),
         "--seed", str(seed),
     ]
 
     # Add mode-specific parameters
     if mode == "gpu":
+        # GPU mode: no exhaustiveness or energy_range
         cmd.extend(["--thread", str(gpu_threads)])
     elif mode == "cpu":
+        # CPU mode: includes exhaustiveness and energy_range
+        cmd.extend([
+            "--exhaustiveness", str(exhaustiveness),
+            "--energy_range", str(energy_range),
+        ])
         if threads is None:
             threads = os.cpu_count() or 8
         cmd.extend(["--cpu", str(threads)])

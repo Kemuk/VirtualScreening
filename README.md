@@ -221,6 +221,15 @@ conda env create -f workflow/envs/vscreen.yaml
 conda activate vscreen
 ```
 
+### Vina-GPU Additional Requirements
+
+If using GPU-accelerated docking, ensure required modules are loaded:
+```bash
+module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0
+```
+
+**Note**: GPU version of Vina does not use `--exhaustiveness` or `--energy_range` parameters (these are CPU-only).
+
 ## Contributing
 
 When extending this workflow:
