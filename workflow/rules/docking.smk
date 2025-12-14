@@ -92,6 +92,7 @@ rule dock_ligand_gpu:
             --seed {params.seed} \
             --gpu-threads {params.gpu_threads} \
             --mode gpu \
+            --progress \
             2>&1 | tee {log}
         """
 
@@ -155,6 +156,7 @@ rule dock_ligand_cpu:
             --seed {params.seed} \
             --threads {params.cpu_threads} \
             --mode cpu \
+            --progress \
             2>&1 | tee {log}
         """
 
