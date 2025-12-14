@@ -5,6 +5,19 @@
 workflow_name: "virtual_screening_pipeline"
 dataset: "LIT_PCBA"
 
+# Execution Mode
+# --------------
+# mode: 'test' or 'slurm'
+#   - test: Run interactively on subset of ligands (for testing)
+#   - slurm: Submit full dataset to SLURM cluster
+mode: "test"  # Default to test mode
+
+# Test Mode Configuration
+# ------------------------
+test:
+  ligands_per_protein: 50        # Number of ligands to process per protein in test mode
+  actives_per_protein: 25        # Number of actives (rest will be inactives)
+
 # Paths
 # -----
 dataset_dir: "LIT_PCBA"          # Root directory for target data

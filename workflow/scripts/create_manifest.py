@@ -351,6 +351,56 @@ def save_manifest(entries: List[Dict], output_path: Path, backup: bool = True):
     print(f"  Rescored: {df['rescoring_status'].sum()}")
 
 
+def filter_test_mode(entries: List[Dict], workflow_config: Dict) -> List[Dict]:
+    """
+    Filter entries for test mode.
+
+    Takes a subset of ligands per protein for testing:
+    - N actives per protein
+    - N inactives per protein
+
+    Args:
+        entries: Full list of manifest entries
+        workflow_config: Workflow configuration
+
+    Returns:
+        Filtered list of entries
+    """
+    test_config = workflow_config.get('test', {})
+    total_per_protein = test_config.get('ligands_per_protein', 50)
+    actives_per_protein = test_config.get('actives_per_protein', 25)
+    inactives_per_protein = total_per_protein - actives_per_protein
+
+    # Group by protein
+    from collections import defaultdict
+    by_protein = defaultdict(lambda: {'actives': [], 'inactives': []})
+
+    for entry in entries:
+        protein_id = entry['protein_id']
+        if entry['is_active']:
+            by_protein[protein_id]['actives'].append(entry)
+        else:
+            by_protein[protein_id]['inactives'].append(entry)
+
+    # Select subset for each protein
+    filtered_entries = []
+    for protein_id, ligands in by_protein.items():
+        # Take first N actives and inactives (deterministic)
+        selected_actives = ligands['actives'][:actives_per_protein]
+        selected_inactives = ligands['inactives'][:inactives_per_protein]
+
+        filtered_entries.extend(selected_actives)
+        filtered_entries.extend(selected_inactives)
+
+        print(f"  {protein_id}: {len(selected_actives)} actives + {len(selected_inactives)} inactives = {len(selected_actives) + len(selected_inactives)} total")
+
+    print(f"\nTest mode: Filtered to {len(filtered_entries)} ligands (from {len(entries)} total)")
+    print(f"  Targets: {len(by_protein)}")
+    print(f"  Per target: up to {total_per_protein} ligands ({actives_per_protein} actives + {inactives_per_protein} inactives)")
+
+    return filtered_entries
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate master manifest from targets.yaml")
     parser.add_argument(
@@ -400,6 +450,11 @@ def main():
     if not entries:
         print("ERROR: No entries generated. Check your configuration and SMILES files.", file=sys.stderr)
         sys.exit(1)
+
+    # Apply test mode filtering if enabled
+    mode = workflow_config.get('mode', 'test')
+    if mode == 'test':
+        entries = filter_test_mode(entries, workflow_config)
 
     # Save manifest
     save_manifest(entries, args.output, backup=not args.no_backup)

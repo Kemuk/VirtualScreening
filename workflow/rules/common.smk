@@ -186,7 +186,23 @@ def get_resources(rule_name):
         dict with resource specifications
     """
     resources = config.get('resources', {})
-    return resources.get(rule_name, {})
+    rule_resources = resources.get(rule_name, {}).copy()
+
+    # Add SLURM-specific flags for cluster profile
+    partition = rule_resources.get('partition', 'htc')
+    rule_resources['partition_flag'] = f"--partition={partition}" if partition else ""
+
+    # Add GPU flag if needed
+    gpus = rule_resources.get('gpus', 0)
+    rule_resources['gpu_flag'] = f"--gres=gpu:{gpus}" if gpus > 0 else ""
+
+    # Format runtime as HH:MM:SS for SLURM
+    time_min = rule_resources.get('time_min', 60)
+    hours = time_min // 60
+    mins = time_min % 60
+    rule_resources['runtime'] = f"{hours:02d}:{mins:02d}:00"
+
+    return rule_resources
 
 
 def get_tool_path(tool_name):
