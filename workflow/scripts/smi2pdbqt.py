@@ -296,8 +296,19 @@ def main():
         action="store_true",
         help="Show progress bar during preparation"
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing output file (required if output exists)"
+    )
 
     args = parser.parse_args()
+
+    # Check if output exists and overwrite flag is needed
+    if args.output.exists() and not args.overwrite:
+        print(f"ERROR: Output file already exists: {args.output}", file=sys.stderr)
+        print(f"Use --overwrite to replace it, or specify a different output path.", file=sys.stderr)
+        sys.exit(1)
 
     ligand_label = args.ligand_id or args.output.stem
     if not args.progress:

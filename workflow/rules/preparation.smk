@@ -126,6 +126,7 @@ rule prepare_ligand:
             --ph {params.ph} \
             --partial-charge {params.partial_charge} \
             --progress \
+            --overwrite \
             2>&1 | tee {log}
         """
 
