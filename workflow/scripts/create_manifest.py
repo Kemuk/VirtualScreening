@@ -68,8 +68,8 @@ MANIFEST_SCHEMA = pa.schema([
     ('aev_plig_score', pa.float64()),
 
     # Metadata (2 columns)
-    ('created_at', pa.timestamp('ms')),
-    ('last_updated', pa.timestamp('ms')),
+    ('created_at', pa.timestamp('ns')),
+    ('last_updated', pa.timestamp('ns')),
 ])
 
 
