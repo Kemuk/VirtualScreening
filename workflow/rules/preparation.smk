@@ -53,6 +53,7 @@ rule prepare_receptor:
             --pdb {output.pdb} \
             --ph {params.ph} \
             --partial-charge {params.partial_charge} \
+            --overwrite \
             2>&1 | tee {log}
         """
 

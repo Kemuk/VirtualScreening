@@ -154,6 +154,11 @@ def main():
         choices=["gasteiger", "mmff94", "eem"],
         help="Partial charge calculation method (default: gasteiger)"
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing output files (required if outputs exist)"
+    )
 
     args = parser.parse_args()
 
@@ -161,6 +166,17 @@ def main():
     if not args.input.exists():
         print(f"ERROR: Input file not found: {args.input}", file=sys.stderr)
         sys.exit(1)
+
+    # Check if outputs exist and overwrite flag is needed
+    if args.pdbqt.exists() or args.pdb.exists():
+        if not args.overwrite:
+            print(f"ERROR: Output files already exist:", file=sys.stderr)
+            if args.pdbqt.exists():
+                print(f"  PDBQT: {args.pdbqt}", file=sys.stderr)
+            if args.pdb.exists():
+                print(f"  PDB: {args.pdb}", file=sys.stderr)
+            print(f"Use --overwrite to replace them, or specify different output paths.", file=sys.stderr)
+            sys.exit(1)
 
     print(f"Converting receptor: {args.input}")
     print(f"  pH: {args.ph}")
