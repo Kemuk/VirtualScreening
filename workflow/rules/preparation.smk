@@ -124,6 +124,7 @@ rule prepare_ligand:
             --ligand-id {wildcards.ligand_id} \
             --ph {params.ph} \
             --partial-charge {params.partial_charge} \
+            --progress \
             2>&1 | tee {log}
         """
 

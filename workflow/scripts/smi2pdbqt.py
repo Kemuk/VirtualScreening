@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from tqdm import tqdm
 
 
 def smiles_to_mol_with_3d(
@@ -152,6 +153,8 @@ def smiles_to_pdbqt(
     partial_charge: str = "gasteiger",
     gen3d: bool = True,
     optimize: bool = True,
+    show_progress: bool = False,
+    ligand_id: str = None,
 ) -> bool:
     """
     Convert SMILES to PDBQT (complete pipeline).
@@ -163,41 +166,88 @@ def smiles_to_pdbqt(
         partial_charge: Charge calculation method
         gen3d: Generate 3D coordinates
         optimize: Optimize geometry
+        show_progress: Show progress bar
+        ligand_id: Ligand identifier for progress display
 
     Returns:
         True if successful
     """
-    # Generate 3D structure
-    mol = smiles_to_mol_with_3d(
-        smiles=smiles,
-        optimize=optimize,
-    )
+    if show_progress:
+        ligand_label = ligand_id or pdbqt_path.stem
+        steps = ['Parsing SMILES', 'Generating 3D', 'Optimizing', 'Converting to PDBQT']
+        with tqdm(total=len(steps), desc=f"Preparing {ligand_label}", unit="step", ncols=80) as pbar:
+            # Generate 3D structure
+            pbar.set_postfix_str(steps[0])
+            pbar.update(1)
 
-    if mol is None:
-        return False
+            pbar.set_postfix_str(steps[1])
+            mol = smiles_to_mol_with_3d(
+                smiles=smiles,
+                optimize=optimize,
+            )
+            pbar.update(1)
 
-    # Write to temporary SDF
-    with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as tmp:
-        tmp_sdf = Path(tmp.name)
+            if mol is None:
+                return False
 
-    try:
-        if not mol_to_sdf(mol, tmp_sdf):
-            return False
+            # Write to temporary SDF
+            with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as tmp:
+                tmp_sdf = Path(tmp.name)
 
-        # Convert SDF to PDBQT
-        success = sdf_to_pdbqt(
-            sdf_path=tmp_sdf,
-            pdbqt_path=pdbqt_path,
-            ph=ph,
-            partial_charge=partial_charge,
+            try:
+                pbar.set_postfix_str(steps[2])
+                if not mol_to_sdf(mol, tmp_sdf):
+                    return False
+                pbar.update(1)
+
+                # Convert SDF to PDBQT
+                pbar.set_postfix_str(steps[3])
+                success = sdf_to_pdbqt(
+                    sdf_path=tmp_sdf,
+                    pdbqt_path=pdbqt_path,
+                    ph=ph,
+                    partial_charge=partial_charge,
+                )
+                pbar.update(1)
+
+                return success
+
+            finally:
+                # Clean up temporary file
+                if tmp_sdf.exists():
+                    tmp_sdf.unlink()
+    else:
+        # Generate 3D structure (no progress)
+        mol = smiles_to_mol_with_3d(
+            smiles=smiles,
+            optimize=optimize,
         )
 
-        return success
+        if mol is None:
+            return False
 
-    finally:
-        # Clean up temporary file
-        if tmp_sdf.exists():
-            tmp_sdf.unlink()
+        # Write to temporary SDF
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as tmp:
+            tmp_sdf = Path(tmp.name)
+
+        try:
+            if not mol_to_sdf(mol, tmp_sdf):
+                return False
+
+            # Convert SDF to PDBQT
+            success = sdf_to_pdbqt(
+                sdf_path=tmp_sdf,
+                pdbqt_path=pdbqt_path,
+                ph=ph,
+                partial_charge=partial_charge,
+            )
+
+            return success
+
+        finally:
+            # Clean up temporary file
+            if tmp_sdf.exists():
+                tmp_sdf.unlink()
 
 
 def main():
@@ -239,12 +289,18 @@ def main():
         action="store_true",
         help="Skip geometry optimization"
     )
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Show progress bar during preparation"
+    )
 
     args = parser.parse_args()
 
     ligand_label = args.ligand_id or args.output.stem
-    print(f"Processing: {ligand_label}")
-    print(f"  SMILES: {args.smiles}")
+    if not args.progress:
+        print(f"Processing: {ligand_label}")
+        print(f"  SMILES: {args.smiles}")
 
     success = smiles_to_pdbqt(
         smiles=args.smiles,
@@ -252,6 +308,8 @@ def main():
         ph=args.ph,
         partial_charge=args.partial_charge,
         optimize=not args.no_optimize,
+        show_progress=args.progress,
+        ligand_id=args.ligand_id,
     )
 
     if success:
