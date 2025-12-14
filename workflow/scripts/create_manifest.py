@@ -493,6 +493,11 @@ def main():
         help="Don't create backup of existing manifest"
     )
     parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing manifest (required if manifest exists)"
+    )
+    parser.add_argument(
         "--project-root",
         type=Path,
         default=Path.cwd(),
@@ -500,6 +505,12 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Check if manifest exists and overwrite flag is needed
+    if args.output.exists() and not args.overwrite:
+        print(f"ERROR: Manifest already exists at {args.output}", file=sys.stderr)
+        print(f"Use --overwrite to replace it, or specify a different output path.", file=sys.stderr)
+        sys.exit(1)
 
     # Load configurations
     workflow_config = load_config(args.config)

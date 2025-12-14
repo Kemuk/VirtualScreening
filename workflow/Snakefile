@@ -114,6 +114,7 @@ rule create_manifest:
             --targets {input.targets_file} \
             --output {output.manifest} \
             --project-root {params.project_root} \
+            --overwrite \
             2>&1 | tee {log}
         """
 
