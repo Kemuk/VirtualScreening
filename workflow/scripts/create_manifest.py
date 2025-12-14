@@ -123,18 +123,20 @@ def generate_manifest_entries(
     project_root: Path,
 ) -> List[Dict]:
     """
-    Generate manifest entries for all targets.
+    Generate manifest entries for all targets using parallel processing.
 
     Returns a list of dictionaries, one per ligand.
     """
-    entries = []
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from multiprocessing import cpu_count
+
     dataset_name = workflow_config.get('dataset', 'LIT_PCBA')
     default_box_size = workflow_config.get('default_box_size', {'x': 25.0, 'y': 25.0, 'z': 25.0})
-
     targets = targets_config.get('targets', {})
 
-    for protein_id, target_config in tqdm(targets.items(), desc="Processing targets"):
-        # Extract target configuration
+    # Prepare all ligand tasks (combining actives and inactives)
+    all_tasks = []
+    for protein_id, target_config in targets.items():
         receptor_mol2 = project_root / target_config['receptor_mol2']
         actives_smi = project_root / target_config['actives_smi']
         inactives_smi = project_root / target_config['inactives_smi']
@@ -142,48 +144,89 @@ def generate_manifest_entries(
         box_center = target_config['box_center']
         box_size = target_config.get('box_size', default_box_size)
 
-        # Derived paths
         target_dir = receptor_mol2.parent
         receptor_pdbqt = target_dir / "receptor.pdbqt"
         receptor_pdb = target_dir / "receptor.pdb"
 
-        # Process actives
+        # Combine actives and inactives into one list
+        ligands = []
         for ligand_id, smiles in parse_smiles_file(actives_smi):
-            entry = create_ligand_entry(
-                ligand_id=ligand_id,
-                protein_id=protein_id,
-                dataset=dataset_name,
-                smiles=smiles,
-                is_active=True,
-                source_smiles_file=str(actives_smi.relative_to(project_root)),
-                target_dir=target_dir,
-                receptor_pdbqt=receptor_pdbqt,
-                receptor_pdb=receptor_pdb,
-                box_center=box_center,
-                box_size=box_size,
-                project_root=project_root,
-            )
-            entries.append(entry)
-
-        # Process inactives
+            ligands.append((ligand_id, smiles, True))  # is_active=True
         for ligand_id, smiles in parse_smiles_file(inactives_smi):
-            entry = create_ligand_entry(
-                ligand_id=ligand_id,
-                protein_id=protein_id,
-                dataset=dataset_name,
-                smiles=smiles,
-                is_active=False,
-                source_smiles_file=str(inactives_smi.relative_to(project_root)),
-                target_dir=target_dir,
-                receptor_pdbqt=receptor_pdbqt,
-                receptor_pdb=receptor_pdb,
-                box_center=box_center,
-                box_size=box_size,
-                project_root=project_root,
-            )
-            entries.append(entry)
+            ligands.append((ligand_id, smiles, False))  # is_active=False
+
+        # Create tasks for this target
+        for ligand_id, smiles, is_active in ligands:
+            source_file = actives_smi if is_active else inactives_smi
+            task = {
+                'ligand_id': ligand_id,
+                'protein_id': protein_id,
+                'dataset': dataset_name,
+                'smiles': smiles,
+                'is_active': is_active,
+                'source_smiles_file': str(source_file.relative_to(project_root)),
+                'target_dir': target_dir,
+                'receptor_pdbqt': receptor_pdbqt,
+                'receptor_pdb': receptor_pdb,
+                'box_center': box_center,
+                'box_size': box_size,
+                'project_root': project_root,
+            }
+            all_tasks.append(task)
+
+    print(f"Processing {len(all_tasks)} ligands across {len(targets)} targets...")
+
+    # Process in parallel
+    max_workers = min(cpu_count(), 16)  # Cap at 16 workers
+    entries = []
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(create_ligand_entry_wrapper, task): task
+            for task in all_tasks
+        }
+
+        # Process results with progress bar
+        with tqdm(total=len(all_tasks), desc="Creating entries", unit="ligand") as pbar:
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                try:
+                    entry = future.result()
+                    entries.append(entry)
+                    # Update progress bar with current ligand info
+                    pbar.set_postfix({
+                        'target': task['protein_id'],
+                        'ligand': task['ligand_id'][:15]  # Truncate long IDs
+                    })
+                    pbar.update(1)
+                except Exception as e:
+                    print(f"\nERROR processing {task['protein_id']}_{task['ligand_id']}: {e}", file=sys.stderr)
+                    pbar.update(1)
 
     return entries
+
+
+def create_ligand_entry_wrapper(task: Dict) -> Dict:
+    """
+    Wrapper function for parallel processing.
+
+    Unpacks task dict and calls create_ligand_entry.
+    """
+    return create_ligand_entry(
+        ligand_id=task['ligand_id'],
+        protein_id=task['protein_id'],
+        dataset=task['dataset'],
+        smiles=task['smiles'],
+        is_active=task['is_active'],
+        source_smiles_file=task['source_smiles_file'],
+        target_dir=task['target_dir'],
+        receptor_pdbqt=task['receptor_pdbqt'],
+        receptor_pdb=task['receptor_pdb'],
+        box_center=task['box_center'],
+        box_size=task['box_size'],
+        project_root=task['project_root'],
+    )
 
 
 def create_ligand_entry(
