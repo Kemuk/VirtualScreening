@@ -43,9 +43,12 @@ def get_target_config(target_id):
 # Manifest Operations
 # =============================================================================
 
+# Cache for loaded manifest to avoid reloading during DAG construction
+_MANIFEST_CACHE = {}
+
 def load_manifest(manifest_path=None):
     """
-    Load manifest as pandas DataFrame.
+    Load manifest as pandas DataFrame with caching.
 
     Args:
         manifest_path: Path to manifest (default: from config)
@@ -59,7 +62,14 @@ def load_manifest(manifest_path=None):
     if manifest_path is None:
         manifest_path = Path(config['manifest_dir']) / 'manifest.parquet'
 
-    # Show progress during loading
+    # Use absolute path as cache key
+    cache_key = str(manifest_path.resolve())
+
+    # Return cached version if available
+    if cache_key in _MANIFEST_CACHE:
+        return _MANIFEST_CACHE[cache_key]
+
+    # Show progress during loading (only on first load)
     with tqdm(total=2, desc="Loading manifest", unit=" step",
               file=sys.stderr, ncols=80) as pbar:
         pbar.set_postfix_str(f"{manifest_path.name}")
@@ -71,6 +81,9 @@ def load_manifest(manifest_path=None):
         pbar.update(1)
 
         pbar.set_postfix_str(f"Loaded {len(df):,} entries")
+
+    # Cache the result
+    _MANIFEST_CACHE[cache_key] = df
 
     return df
 
