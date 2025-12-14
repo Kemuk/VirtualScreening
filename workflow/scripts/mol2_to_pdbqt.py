@@ -27,6 +27,8 @@ def convert_mol2_to_pdbqt(
     """
     Convert MOL2 to PDBQT using OpenBabel.
 
+    Creates a RIGID receptor (no flexibility) for Vina docking.
+
     Args:
         mol2_path: Input MOL2 file
         pdbqt_path: Output PDBQT file
@@ -38,13 +40,15 @@ def convert_mol2_to_pdbqt(
     """
     pdbqt_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # OpenBabel command for MOL2 → PDBQT conversion
+    # OpenBabel command for MOL2 → PDBQT conversion (RIGID receptor)
+    # -xr: Make receptor rigid (no TORSDOF/BRANCH records)
     # -p: Add hydrogens at pH
     # --partialcharge: Calculate partial charges
     cmd = [
         "obabel",
         str(mol2_path),
         "-O", str(pdbqt_path),
+        "-xr",  # Rigid receptor flag - critical for Vina!
         "-p", str(ph),
         "--partialcharge", partial_charge,
     ]
