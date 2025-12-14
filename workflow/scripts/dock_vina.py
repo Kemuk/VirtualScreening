@@ -76,12 +76,13 @@ def run_vina_docking(
     output_abs = output.resolve()
     log_file_abs = log_file.resolve()
 
-    # Determine vina working directory and binary name
+    # Determine vina working directory and binary absolute path
     vina_path = Path(vina_bin)
     if vina_path.is_absolute() or '/' in vina_bin:
-        # Path-like: extract directory and binary name
-        vina_dir = vina_path.parent.resolve()
-        vina_exec = f"./{vina_path.name}"
+        # Path-like: use absolute path to executable
+        vina_path_abs = vina_path.resolve()
+        vina_dir = vina_path_abs.parent
+        vina_exec = str(vina_path_abs)
     else:
         # Just a command name: use current directory
         vina_dir = Path.cwd()
