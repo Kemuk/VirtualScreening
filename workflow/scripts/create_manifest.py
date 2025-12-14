@@ -154,8 +154,9 @@ def generate_manifest_entries(
         box_size = target_config.get('box_size', default_box_size)
 
         target_dir = receptor_mol2.parent
-        receptor_pdbqt = target_dir / "receptor.pdbqt"
-        receptor_pdb = target_dir / "receptor.pdb"
+        # Use {protein_id}_protein naming for receptor outputs
+        receptor_pdbqt = target_dir / f"{protein_id}_protein.pdbqt"
+        receptor_pdb = target_dir / f"{protein_id}_protein.pdb"
 
         # Combine actives and inactives into one list, with filtering for test mode
         ligands = []
@@ -184,6 +185,7 @@ def generate_manifest_entries(
                 'smiles': smiles,
                 'is_active': is_active,
                 'source_smiles_file': str(source_file.relative_to(project_root)),
+                'source_mol2_path': str(receptor_mol2.relative_to(project_root)),
                 'target_dir': target_dir,
                 'receptor_pdbqt': receptor_pdbqt,
                 'receptor_pdb': receptor_pdb,
@@ -239,6 +241,7 @@ def create_ligand_entry_wrapper(task: Dict) -> Dict:
         smiles=task['smiles'],
         is_active=task['is_active'],
         source_smiles_file=task['source_smiles_file'],
+        source_mol2_path=task['source_mol2_path'],
         target_dir=task['target_dir'],
         receptor_pdbqt=task['receptor_pdbqt'],
         receptor_pdb=task['receptor_pdb'],
@@ -255,6 +258,7 @@ def create_ligand_entry(
     smiles: str,
     is_active: bool,
     source_smiles_file: str,
+    source_mol2_path: str,
     target_dir: Path,
     receptor_pdbqt: Path,
     receptor_pdb: Path,
@@ -308,7 +312,7 @@ def create_ligand_entry(
         # Input Sources
         'source_smiles_file': source_smiles_file,
         'source_sdf_path': None,  # Not used for LIT_PCBA
-        'source_mol2_path': None,  # Not used for ligands
+        'source_mol2_path': source_mol2_path,  # Receptor MOL2 from targets.yaml
 
         # Preparation
         'preparation_status': preparation_status,

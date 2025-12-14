@@ -152,8 +152,8 @@ def get_receptor_paths(target_id):
 
     return {
         'mol2': str(receptor_mol2),
-        'pdbqt': str(target_dir / 'receptor.pdbqt'),
-        'pdb': str(target_dir / 'receptor.pdb'),
+        'pdbqt': str(target_dir / f'{target_id}_protein.pdbqt'),
+        'pdb': str(target_dir / f'{target_id}_protein.pdb'),
     }
 
 

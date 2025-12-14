@@ -25,15 +25,15 @@ rule prepare_receptor:
         - {target}_protein.mol2
 
     Output:
-        - receptor.pdbqt (for docking)
-        - receptor.pdb (for visualization/rescoring)
+        - {target}_protein.pdbqt (for docking)
+        - {target}_protein.pdb (for visualization/rescoring)
     """
     input:
         mol2 = lambda wildcards: get_target_config(wildcards.target)['receptor_mol2']
 
     output:
-        pdbqt = "{dataset}/{target}/receptor.pdbqt",
-        pdb = "{dataset}/{target}/receptor.pdb"
+        pdbqt = "{dataset}/{target}/{target}_protein.pdbqt",
+        pdb = "{dataset}/{target}/{target}_protein.pdb"
 
     log:
         "data/logs/preparation/{dataset}_{target}_receptor.log"
@@ -65,12 +65,12 @@ rule prepare_all_receptors:
     """
     input:
         expand(
-            "{dataset}/{target}/receptor.pdbqt",
+            "{dataset}/{target}/{target}_protein.pdbqt",
             dataset=config['dataset'],
             target=get_targets()
         ),
         expand(
-            "{dataset}/{target}/receptor.pdb",
+            "{dataset}/{target}/{target}_protein.pdb",
             dataset=config['dataset'],
             target=get_targets()
         )

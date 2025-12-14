@@ -36,7 +36,7 @@ rule dock_ligand_gpu:
         ligand_id: Ligand identifier
     """
     input:
-        receptor = "{dataset}/{target}/receptor.pdbqt",
+        receptor = "{dataset}/{target}/{target}_protein.pdbqt",
         ligand = "{dataset}/{target}/pdbqt/{ligand_class}/{ligand_id}.pdbqt",
 
     output:
@@ -100,7 +100,7 @@ rule dock_ligand_cpu:
     Same as dock_ligand_gpu but uses CPU threads instead of GPU.
     """
     input:
-        receptor = "{dataset}/{target}/receptor.pdbqt",
+        receptor = "{dataset}/{target}/{target}_protein.pdbqt",
         ligand = "{dataset}/{target}/pdbqt/{ligand_class}/{ligand_id}.pdbqt",
 
     output:
