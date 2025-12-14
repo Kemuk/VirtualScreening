@@ -25,13 +25,13 @@ from pathlib import Path
 # =============================================================================
 
 # Config file path relative to Snakefile location
-configfile: "../config/config.yaml"
+configfile: "config/config.yaml"
 
 # Ensure we're running from project root
 workdir: str(Path(workflow.basedir).parent)
 
 # Load common utilities
-include: "workflow/rules/common.smk"
+include: "rules/common.smk"
 
 # =============================================================================
 # Global Variables
@@ -135,7 +135,7 @@ include: "rules/conversion.smk"
 include: "rules/rescoring.smk"
 
 # Ligand-based methods (optional)
-# include: "rules/ligand_based.smk"
+# include: "workflow/rules/ligand_based.smk"
 
 
 # =============================================================================
