@@ -54,13 +54,24 @@ def load_manifest(manifest_path=None):
         pandas.DataFrame
     """
     import sys
+    from tqdm import tqdm
+
     if manifest_path is None:
         manifest_path = Path(config['manifest_dir']) / 'manifest.parquet'
 
-    print(f"Loading manifest from {manifest_path}...", file=sys.stderr)
-    table = pq.read_table(manifest_path)
-    df = table.to_pandas()
-    print(f"  Loaded {len(df)} entries", file=sys.stderr)
+    # Show progress during loading
+    with tqdm(total=2, desc="Loading manifest", unit=" step",
+              file=sys.stderr, ncols=80) as pbar:
+        pbar.set_postfix_str(f"{manifest_path.name}")
+        table = pq.read_table(manifest_path)
+        pbar.update(1)
+
+        pbar.set_postfix_str("Converting to DataFrame")
+        df = table.to_pandas()
+        pbar.update(1)
+
+        pbar.set_postfix_str(f"Loaded {len(df):,} entries")
+
     return df
 
 
