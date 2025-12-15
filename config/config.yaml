@@ -1,0 +1,141 @@
+# Main Workflow Configuration for Virtual Screening Pipeline
+# =============================================================
+
+# Workflow metadata
+workflow_name: "virtual_screening_pipeline"
+dataset: "LIT_PCBA"
+
+# Execution Mode
+# --------------
+# mode: 'test' or 'slurm'
+#   - test: Run interactively on subset of ligands (for testing)
+#   - slurm: Submit full dataset to SLURM cluster
+mode: "test"  # Default to test mode
+
+# Test Mode Configuration
+# ------------------------
+test:
+  actives_per_protein: 100       # Number of actives per protein (if available)
+  inactives_per_protein: 9900    # Number of inactives per protein
+  # Total: 10,000 ligands per protein in test mode
+
+# Paths
+# -----
+dataset_dir: "LIT_PCBA"          # Root directory for target data
+manifest_dir: "data/master"       # Parquet manifest storage
+results_dir: "results"            # Analysis outputs
+logs_dir: "data/logs"             # Snakemake execution logs
+
+# Targets configuration file
+targets_config: "config/targets.yaml"
+
+# Docking Parameters
+# ------------------
+docking:
+  exhaustiveness: 8               # Vina exhaustiveness (GNINA default)
+  num_modes: 9                    # Number of binding modes to generate
+  energy_range: 3                 # Energy range for binding modes (kcal/mol)
+  seed: 42                        # Random seed for reproducibility
+
+# Default Box Sizes
+# -----------------
+# Used for all targets unless overridden in targets.yaml
+# These are GNINA-style defaults (MIN=18, MAX=36, PAD=16)
+default_box_size:
+  x: 25.0
+  y: 25.0
+  z: 25.0
+
+# GPU Settings
+# ------------
+gpu:
+  threads: 8000                   # GPU thread count for Vina-GPU
+  device_id: 0                    # Default CUDA device
+
+# CPU Settings
+# ------------
+cpu:
+  threads: 8                      # CPU thread count for Vina
+  runtime_workers: 4              # Parallel docking jobs on CPU
+
+# Preparation Parameters
+# ----------------------
+preparation:
+  ph: 7.4                         # pH for protonation states
+  partial_charge: "gasteiger"     # Charge calculation method
+  gen3d: true                     # Generate 3D coordinates from SMILES
+
+# SDF Conversion
+# --------------
+sdf_conversion:
+  select_model: 0                 # Which binding mode to extract (0 = best)
+
+# AEV-PLIG Rescoring
+# ------------------
+rescoring:
+  shard_total: 100                # Number of shards for parallel rescoring
+  enabled: true                   # Enable/disable AEV-PLIG rescoring
+
+# Ligand-Based Methods
+# --------------------
+ligand_based:
+  enabled: false                  # Enable/disable ligand-based screening
+  n_jobs: 8                       # Parallel jobs for ligand-based methods
+  methods:
+    - "fingerprint"               # Fingerprint similarity
+    - "shape"                     # Shape-based similarity
+    - "pharmacophore"             # Pharmacophore-based screening
+
+# Resource Allocation (for cluster profiles)
+# -------------------------------------------
+resources:
+  # Receptor and ligand preparation
+  preparation:
+    mem_mb: 16000
+    cpus: 16
+    time_min: 120
+    partition: "htc"
+
+  # GPU docking (Vina-GPU)
+  docking_gpu:
+    mem_mb: 20000
+    cpus: 2
+    gpus: 1
+    time_min: 720
+    partition: "htc"
+
+  # CPU docking (Vina)
+  docking_cpu:
+    mem_mb: 64000
+    cpus: 32
+    time_min: 720
+    partition: "arc"
+
+  # SDF conversion
+  sdf_conversion:
+    mem_mb: 8000
+    cpus: 4
+    time_min: 30
+    partition: "htc"
+
+  # AEV-PLIG rescoring
+  rescoring:
+    mem_mb: 32000
+    cpus: 16
+    time_min: 20
+    partition: "htc"
+
+  # Ligand-based methods
+  ligand_based:
+    mem_mb: 20000
+    cpus: 8
+    time_min: 30
+    partition: "htc"
+
+# External Tools
+# --------------
+tools:
+  vina_gpu: "vina-gpu-dev/QuickVina2-GPU-2-1"
+  vina_cpu: "vina"                # Assume vina in PATH or specify full path
+  obabel: "obabel"                # OpenBabel for conversions
+  aev_plig_dir: "AEV-PLIG"        # AEV-PLIG installation directory

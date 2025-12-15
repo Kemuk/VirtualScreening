@@ -1,0 +1,35 @@
+# Snakemake Cluster Profile for ARC (Oxford)
+# ============================================
+
+cluster: "sbatch --clusters=htc --parsable --job-name={rule} --cpus-per-task={threads} --mem={resources.mem_mb}M --time={resources.runtime} --output=data/logs/slurm/{rule}-%j.out --error=data/logs/slurm/{rule}-%j.err --requeue {resources.partition_flag} {resources.gpu_flag}"
+
+default-resources:
+  - mem_mb=8000
+  - runtime=60
+  - partition_flag=""
+  - gpu_flag=""
+
+# Restart jobs if they fail (good for preemptible jobs)
+restart-times: 3
+
+# Maximum number of jobs to submit at once
+max-jobs-per-second: 10
+max-status-checks-per-second: 10
+
+# Jobs to run simultaneously
+jobs: 100
+
+# Use conda environments
+use-conda: true
+
+# Keep going if some jobs fail
+keep-going: true
+
+# Rerun incomplete jobs
+rerun-incomplete: true
+
+# Print shell commands
+printshellcmds: false
+
+# Latency wait (for network filesystems)
+latency-wait: 60

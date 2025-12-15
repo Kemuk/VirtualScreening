@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Snakemake
+.snakemake/
+*.snakemake.log
+
+# Data files (manifests and large datasets)
+data/master/*.parquet
+data/master/*.csv
+data/master/backups/
+data/logs/
+
+# LIT_PCBA dataset outputs (keep structure, ignore outputs)
+LIT_PCBA/*/receptor.pdbqt
+LIT_PCBA/*/receptor.pdb
+LIT_PCBA/*/pdbqt/
+LIT_PCBA/*/docked_vina/
+LIT_PCBA/*/docked_sdf/
+LIT_PCBA/*/rescoring/
+LIT_PCBA/master_manifest.csv
+LIT_PCBA/vina_boxes.csv
+
+# Results
+results/
+*.png
+*.pdf
+*.svg
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# SLURM
+slurm-*.out
+job_stats/
+
+# OS
+.DS_Store
+Thumbs.db
