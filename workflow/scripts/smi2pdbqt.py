@@ -301,6 +301,11 @@ def main():
         action="store_true",
         help="Overwrite existing output file (required if output exists)"
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress non-error output (only show errors)"
+    )
 
     args = parser.parse_args()
 
@@ -311,7 +316,7 @@ def main():
         sys.exit(1)
 
     ligand_label = args.ligand_id or args.output.stem
-    if not args.progress:
+    if not args.progress and not args.quiet:
         print(f"Processing: {ligand_label}")
         print(f"  SMILES: {args.smiles}")
 
@@ -326,7 +331,8 @@ def main():
     )
 
     if success:
-        print(f"✓ Created: {args.output}")
+        if not args.quiet:
+            print(f"✓ Created: {args.output}")
         sys.exit(0)
     else:
         print(f"✗ Failed to process: {ligand_label}", file=sys.stderr)
