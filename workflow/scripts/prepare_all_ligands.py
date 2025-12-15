@@ -15,7 +15,10 @@ from multiprocessing import cpu_count
 import pandas as pd
 from tqdm import tqdm
 
-# Import conversion functions from smi2pdbqt
+# Add script directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Import conversion function from smi2pdbqt
 from smi2pdbqt import smiles_to_pdbqt
 
 
@@ -47,9 +50,6 @@ def prepare_ligand_task(task: Dict) -> Dict:
             pdbqt_path=pdbqt_path,
             ph=ph,
             partial_charge=partial_charge,
-            optimize=True,
-            show_progress=False,  # No per-ligand progress bars
-            ligand_id=ligand_id,
         )
 
         return {

@@ -2,69 +2,38 @@
 """
 smi2pdbqt.py
 
-Convert SMILES to PDBQT format for molecular docking.
-
-Process:
-  1. Read SMILES string
-  2. Generate 3D coordinates using RDKit
-  3. Add hydrogens
-  4. Optimize geometry
-  5. Convert to PDBQT via OpenBabel
+Convert SMILES to PDBQT format using OpenBabel directly.
 """
 
 import argparse
 import sys
 import subprocess
-import tempfile
 from pathlib import Path
-from rdkit import Chem
-from rdkit.Chem import AllChem
-from tqdm import tqdm
 
 
-def smiles_to_mol_with_3d(
+def smiles_to_pdbqt(
     smiles: str,
-    optimize: bool = True,
-    max_iters: int = 200,
-) -> Chem.Mol:
-    """Convert SMILES to RDKit Mol with 3D coordinates."""
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        print(f"ERROR: Invalid SMILES: {smiles}", file=sys.stderr)
-        return None
-
-    mol = Chem.AddHs(mol)
-
-    try:
-        result = AllChem.EmbedMolecule(mol, randomSeed=42, useRandomCoords=False)
-        if result != 0:
-            print(f"ERROR: 3D coordinate generation failed (code: {result})", file=sys.stderr)
-            return None
-    except Exception as e:
-        print(f"ERROR: 3D embedding failed: {e}", file=sys.stderr)
-        return None
-
-    if optimize:
-        try:
-            AllChem.MMFFOptimizeMolecule(mol, maxIters=max_iters)
-        except Exception as e:
-            print(f"WARNING: MMFF optimization failed: {e}", file=sys.stderr)
-
-    return mol
-
-
-def sdf_to_pdbqt(
-    sdf_path: Path,
     pdbqt_path: Path,
     ph: float = 7.4,
     partial_charge: str = "gasteiger",
 ) -> bool:
-    """Convert SDF to PDBQT using OpenBabel."""
+    """
+    Convert SMILES to PDBQT using OpenBabel directly.
+
+    Args:
+        smiles: SMILES string
+        pdbqt_path: Output PDBQT path
+        ph: pH for protonation
+        partial_charge: Charge calculation method
+
+    Returns:
+        True if successful
+    """
     pdbqt_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         "obabel",
-        str(sdf_path),
+        f"-:{smiles}",
         "-opdbqt",
         "--gen3d",
         "-O", str(pdbqt_path),
@@ -85,75 +54,14 @@ def sdf_to_pdbqt(
         return False
 
 
-def smiles_to_pdbqt(
-    smiles: str,
-    pdbqt_path: Path,
-    ph: float = 7.4,
-    partial_charge: str = "gasteiger",
-    optimize: bool = True,
-    show_progress: bool = False,
-    ligand_id: str = None,
-) -> bool:
-    """Convert SMILES to PDBQT (complete pipeline)."""
-
-    # Setup progress bar if requested
-    pbar = None
-    if show_progress:
-        ligand_label = ligand_id or pdbqt_path.stem
-        steps = ['Parsing', '3D Gen', 'Optimize', 'Convert']
-        pbar = tqdm(total=len(steps), desc=f"Preparing {ligand_label}", unit="step", ncols=80)
-
-    def update_progress(step_idx):
-        if pbar:
-            pbar.set_postfix_str(steps[step_idx])
-            pbar.update(1)
-
-    try:
-        # Generate 3D structure
-        update_progress(0)
-        update_progress(1)
-        mol = smiles_to_mol_with_3d(smiles=smiles, optimize=optimize)
-        update_progress(2)
-
-        if mol is None:
-            return False
-
-        # Write to temporary SDF and convert
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as tmp:
-            tmp_sdf = Path(tmp.name)
-
-        try:
-            writer = Chem.SDWriter(str(tmp_sdf))
-            writer.write(mol)
-            writer.close()
-
-            update_progress(3)
-            success = sdf_to_pdbqt(
-                sdf_path=tmp_sdf,
-                pdbqt_path=pdbqt_path,
-                ph=ph,
-                partial_charge=partial_charge,
-            )
-
-            return success
-        finally:
-            if tmp_sdf.exists():
-                tmp_sdf.unlink()
-    finally:
-        if pbar:
-            pbar.close()
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Convert SMILES to PDBQT format for docking")
+    parser = argparse.ArgumentParser(description="Convert SMILES to PDBQT format")
     parser.add_argument("--smiles", type=str, required=True, help="SMILES string")
     parser.add_argument("--output", type=Path, required=True, help="Output PDBQT file")
     parser.add_argument("--ligand-id", type=str, help="Ligand identifier (for logging)")
     parser.add_argument("--ph", type=float, default=7.4, help="pH for protonation (default: 7.4)")
     parser.add_argument("--partial-charge", type=str, default="gasteiger",
                         choices=["gasteiger", "mmff94", "eem"], help="Partial charge method")
-    parser.add_argument("--no-optimize", action="store_true", help="Skip geometry optimization")
-    parser.add_argument("--progress", action="store_true", help="Show progress bar")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output file")
     parser.add_argument("--quiet", action="store_true", help="Suppress non-error output")
 
@@ -165,7 +73,7 @@ def main():
         sys.exit(1)
 
     ligand_label = args.ligand_id or args.output.stem
-    if not args.progress and not args.quiet:
+    if not args.quiet:
         print(f"Processing: {ligand_label}")
         print(f"  SMILES: {args.smiles}")
 
@@ -174,9 +82,6 @@ def main():
         pdbqt_path=args.output,
         ph=args.ph,
         partial_charge=args.partial_charge,
-        optimize=not args.no_optimize,
-        show_progress=args.progress,
-        ligand_id=args.ligand_id,
     )
 
     if success:
