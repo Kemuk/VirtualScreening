@@ -76,7 +76,7 @@ rule prepare_all_ligands:
     params:
         ph = config.get('preparation', {}).get('ph', 7.4),
         partial_charge = config.get('preparation', {}).get('partial_charge', 'gasteiger'),
-        max_workers = config.get('preparation', {}).get('max_workers', None),
+        max_workers_flag = lambda wildcards: f"--max-workers {config.get('preparation', {}).get('max_workers')}" if config.get('preparation', {}).get('max_workers') else "",
 
     shell:
         """
@@ -85,7 +85,7 @@ rule prepare_all_ligands:
             --project-root . \
             --ph {params.ph} \
             --partial-charge {params.partial_charge} \
-            {f'--max-workers {params.max_workers}' if params.max_workers else ''} \
+            {params.max_workers_flag} \
             2>&1 | tee {log}
         """
 
