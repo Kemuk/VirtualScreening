@@ -2,32 +2,14 @@
 preparation.smk
 
 Snakemake rules for receptor and ligand preparation.
-
-Rules:
-  - prepare_receptor: Convert receptor MOL2 → PDBQT + PDB
-  - prepare_ligand: Convert ligand SMILES → PDBQT
-  - prepare_all_receptors: Prepare all receptors
-  - prepare_all_ligands: Prepare all ligands
 """
 
 import pandas as pd
 
 
-# =============================================================================
 # Receptor Preparation
-# =============================================================================
-
 rule prepare_receptor:
-    """
-    Convert a single receptor from MOL2 to PDBQT and PDB formats.
-
-    Input:
-        - {target}_protein.mol2
-
-    Output:
-        - {target}_protein.pdbqt (for docking)
-        - {target}_protein.pdb (for visualization/rescoring)
-    """
+    """Convert receptor MOL2 → PDBQT + PDB."""
     input:
         mol2 = lambda wildcards: get_target_config(wildcards.target)['receptor_mol2']
 
@@ -59,11 +41,7 @@ rule prepare_receptor:
 
 
 rule prepare_all_receptors:
-    """
-    Prepare all receptors defined in targets.yaml.
-
-    This is a convenience rule to prepare all receptors at once.
-    """
+    """Prepare all receptors defined in targets.yaml."""
     input:
         expand(
             "{dataset}/{target}/{target}_protein.pdbqt",
@@ -80,25 +58,9 @@ rule prepare_all_receptors:
         "All receptors prepared!"
 
 
-# =============================================================================
 # Ligand Preparation
-# =============================================================================
-
 rule prepare_ligand:
-    """
-    Convert a single ligand from SMILES to PDBQT format.
-
-    This rule is triggered per-ligand based on the manifest.
-    The SMILES is read from the manifest using the compound_key.
-
-    Wildcards:
-        target: Protein target ID (e.g., ADRB2)
-        ligand_class: Either 'actives' or 'inactives'
-        ligand_id: Ligand identifier
-
-    Output:
-        - {dataset}/{target}/pdbqt/{ligand_class}/{ligand_id}.pdbqt
-    """
+    """Convert ligand SMILES → PDBQT."""
     output:
         pdbqt = "{dataset}/{target}/pdbqt/{ligand_class}/{ligand_id}.pdbqt"
 
@@ -132,28 +94,10 @@ rule prepare_ligand:
         """
 
 
-# =============================================================================
-# Helper Functions for Ligand Preparation
-# =============================================================================
-
 def get_smiles_for_ligand(target_id: str, ligand_id: str, ligand_class: str) -> str:
-    """
-    Retrieve SMILES string for a ligand from the manifest.
-
-    Args:
-        target_id: Target protein ID
-        ligand_id: Ligand identifier
-        ligand_class: 'actives' or 'inactives'
-
-    Returns:
-        SMILES string
-    """
+    """Retrieve SMILES string for a ligand from the manifest."""
     manifest = load_manifest()
-
-    # Construct compound key
     compound_key = f"{target_id}_{ligand_id}"
-
-    # Filter manifest
     row = manifest[manifest['compound_key'] == compound_key]
 
     if len(row) == 0:
@@ -170,45 +114,9 @@ def get_smiles_for_ligand(target_id: str, ligand_id: str, ligand_class: str) -> 
     return row.iloc[0]['smiles_input']
 
 
-def get_all_ligand_pdbqts_from_manifest():
-    """
-    Get list of all ligand PDBQT paths from the manifest.
-
-    Returns all ligand paths - Snakemake will determine which ones need
-    to be prepared based on file existence and timestamps.
-
-    Returns:
-        List of PDBQT file paths
-    """
-    import sys
-    from tqdm import tqdm
-
-    manifest = load_manifest()
-
-    print(f"  Total ligands in manifest: {len(manifest)}", file=sys.stderr)
-
-    # Build path list with progress bar
-    print("  Building job list for Snakemake...", file=sys.stderr)
-    with tqdm(total=len(manifest), desc="  Extracting paths", unit=" ligands",
-              file=sys.stderr, ncols=80, miniters=1000) as pbar:
-        paths = manifest['ligand_pdbqt_path'].tolist()
-        pbar.update(len(manifest))
-
-    print(f"  DAG construction complete: {len(paths)} total ligands", file=sys.stderr)
-    return paths
-
-
-# =============================================================================
-# Batch Preparation Rules
-# =============================================================================
-
+# Batch Preparation
 checkpoint prepare_ligands_checkpoint:
-    """
-    Checkpoint to determine which ligands need preparation.
-
-    This checkpoint reads the manifest and creates a target list
-    for Snakemake to process.
-    """
+    """Checkpoint to determine which ligands need preparation."""
     input:
         manifest = MANIFEST_PATH
 
@@ -217,36 +125,20 @@ checkpoint prepare_ligands_checkpoint:
 
     run:
         manifest = load_manifest()
-
         print(f"\nTotal ligands in manifest: {len(manifest)}")
         print(f"  Actives: {manifest['is_active'].sum()}")
         print(f"  Inactives: {(~manifest['is_active']).sum()}")
 
 
 def get_prepared_ligands(wildcards):
-    """
-    Dynamic input function for prepare_all_ligands rule.
-
-    This is called after the checkpoint completes and returns all ligand
-    PDBQT paths from the manifest. Snakemake will determine which ones
-    need to be created based on file existence and timestamps.
-    """
-    # Trigger checkpoint
+    """Dynamic input function - returns all ligand PDBQT paths from manifest."""
     checkpoints.prepare_ligands_checkpoint.get()
-
-    # Load manifest and return all ligand paths
     manifest = load_manifest()
-
-    # Return ALL ligands - let Snakemake decide what needs to run
     return manifest['ligand_pdbqt_path'].tolist()
 
 
 rule prepare_all_ligands:
-    """
-    Prepare all ligands based on manifest.
-
-    Uses checkpoint to dynamically determine which ligands need preparation.
-    """
+    """Prepare all ligands based on manifest."""
     input:
         get_prepared_ligands
 
@@ -254,16 +146,8 @@ rule prepare_all_ligands:
         "All ligands prepared!"
 
 
-# =============================================================================
-# Combined Preparation Rule
-# =============================================================================
-
 rule prepare_all:
-    """
-    Prepare all receptors and ligands.
-
-    This is the main preparation target.
-    """
+    """Prepare all receptors and ligands."""
     input:
         rules.prepare_all_receptors.input,
         "data/logs/preparation/ligands_checkpoint.done"
