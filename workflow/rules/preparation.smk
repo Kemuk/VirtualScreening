@@ -86,6 +86,7 @@ rule prepare_all_ligands:
             --ph {params.ph} \
             --partial-charge {params.partial_charge} \
             {params.max_workers_flag} \
+            --force \
             2>&1 | tee {log}
         """
 
