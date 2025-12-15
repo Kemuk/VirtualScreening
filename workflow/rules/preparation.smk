@@ -171,9 +171,10 @@ def get_smiles_for_ligand(target_id: str, ligand_id: str, ligand_class: str) -> 
 
 def get_all_ligand_pdbqts_from_manifest():
     """
-    Get list of all ligand PDBQT paths that need to be prepared.
+    Get list of all ligand PDBQT paths from the manifest.
 
-    Reads manifest and returns paths for ligands where preparation_status=False.
+    Returns all ligand paths - Snakemake will determine which ones need
+    to be prepared based on file existence and timestamps.
 
     Returns:
         List of PDBQT file paths
@@ -183,19 +184,16 @@ def get_all_ligand_pdbqts_from_manifest():
 
     manifest = load_manifest()
 
-    # Filter to ligands that need preparation with progress
-    print("  Filtering for unprepared ligands...", file=sys.stderr)
-    needs_prep = manifest[~manifest['preparation_status']]
-    print(f"  Found {len(needs_prep)} ligands needing preparation", file=sys.stderr)
+    print(f"  Total ligands in manifest: {len(manifest)}", file=sys.stderr)
 
     # Build path list with progress bar
     print("  Building job list for Snakemake...", file=sys.stderr)
-    with tqdm(total=len(needs_prep), desc="  Extracting paths", unit=" ligands",
+    with tqdm(total=len(manifest), desc="  Extracting paths", unit=" ligands",
               file=sys.stderr, ncols=80, miniters=1000) as pbar:
-        paths = needs_prep['ligand_pdbqt_path'].tolist()
-        pbar.update(len(needs_prep))
+        paths = manifest['ligand_pdbqt_path'].tolist()
+        pbar.update(len(manifest))
 
-    print(f"  DAG construction complete: {len(paths)} preparation jobs", file=sys.stderr)
+    print(f"  DAG construction complete: {len(paths)} total ligands", file=sys.stderr)
     return paths
 
 
@@ -218,31 +216,28 @@ checkpoint prepare_ligands_checkpoint:
 
     run:
         manifest = load_manifest()
-        needs_prep = manifest[~manifest['preparation_status']]
 
-        print(f"\nLigands needing preparation: {len(needs_prep)}")
-        print(f"  Actives: {needs_prep['is_active'].sum()}")
-        print(f"  Inactives: {(~needs_prep['is_active']).sum()}")
+        print(f"\nTotal ligands in manifest: {len(manifest)}")
+        print(f"  Actives: {manifest['is_active'].sum()}")
+        print(f"  Inactives: {(~manifest['is_active']).sum()}")
 
 
 def get_prepared_ligands(wildcards):
     """
     Dynamic input function for prepare_all_ligands rule.
 
-    This is called after the checkpoint completes and determines
-    which ligand files need to be created.
+    This is called after the checkpoint completes and returns all ligand
+    PDBQT paths from the manifest. Snakemake will determine which ones
+    need to be created based on file existence and timestamps.
     """
     # Trigger checkpoint
     checkpoints.prepare_ligands_checkpoint.get()
 
-    # Load manifest
+    # Load manifest and return all ligand paths
     manifest = load_manifest()
 
-    # Get ligands that need preparation
-    needs_prep = manifest[~manifest['preparation_status']]
-
-    # Return list of output paths
-    return needs_prep['ligand_pdbqt_path'].tolist()
+    # Return ALL ligands - let Snakemake decide what needs to run
+    return manifest['ligand_pdbqt_path'].tolist()
 
 
 rule prepare_all_ligands:
