@@ -169,41 +169,109 @@ rule prepare_all_aev_plig:
 
 
 # =============================================================================
-# Optional: Run AEV-PLIG Neural Network
+# AEV-PLIG Full Pipeline (Prepare -> Predict -> Update Manifest)
 # =============================================================================
 
-# NOTE: This rule is commented out because it requires the AEV-PLIG
-# neural network model files. Uncomment and configure if you have the model.
-#
-# rule run_aev_plig_rescoring:
-#     """
-#     Run AEV-PLIG neural network rescoring on prepared data.
-#
-#     Requires:
-#       - AEV-PLIG model files in AEV-PLIG/ directory
-#       - Configured AEV-PLIG environment
-#     """
-#     input:
-#         csv = "{dataset}/{target}/rescoring/datasets/aev_plig_{target}.csv",
-#
-#     output:
-#         scores = "{dataset}/{target}/rescoring/results/aev_plig_{target}_scores.csv",
-#
-#     log:
-#         "data/logs/rescoring/{dataset}_{target}_run.log"
-#
-#     params:
-#         aev_plig_dir = lambda wildcards: get_tool_path('aev_plig_dir'),
-#
-#     shell:
-#         """
-#         # Example command (adjust to your AEV-PLIG setup):
-#         cd {params.aev_plig_dir} && \
-#         python run_aev_plig.py \
-#             --input {input.csv} \
-#             --output {output.scores} \
-#             2>&1 | tee {log}
-#         """
+rule prepare_aev_plig_input:
+    """
+    Generate AEV-PLIG input CSV from manifest.
+
+    Creates CSV with format: unique_id,pK,sdf_file,pdb_file
+    Where unique_id is the compound_key from manifest.
+    """
+    input:
+        manifest = MANIFEST_PATH,
+        conversion_checkpoint = "data/logs/conversion/conversion_checkpoint.done",
+
+    output:
+        csv = "AEV-PLIG/data/lit_pcba.csv",
+
+    log:
+        "data/logs/rescoring/prepare_aev_plig_input.log"
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    resources:
+        mem_mb = lambda wildcards: get_resources('rescoring').get('mem_mb', 32000),
+        cpus = lambda wildcards: get_resources('rescoring').get('cpus', 16),
+        runtime = lambda wildcards: get_resources('rescoring').get('time_min', 20),
+
+    shell:
+        """
+        python workflow/scripts/prepare_aev_plig_csv.py \
+            --manifest {input.manifest} \
+            --output {output.csv} \
+            2>&1 | tee {log}
+        """
+
+
+rule run_aev_plig_prediction:
+    """
+    Run AEV-PLIG neural network predictions.
+
+    Executes the AEV-PLIG model on prepared data.
+    Output contains predictions from 10 model ensembles plus final prediction.
+    """
+    input:
+        csv = "AEV-PLIG/data/lit_pcba.csv",
+
+    output:
+        predictions = "AEV-PLIG/data/output/predictions/lit_pcba_predictions.csv",
+
+    log:
+        "data/logs/rescoring/run_aev_plig_prediction.log"
+
+    params:
+        aev_plig_dir = config['tools']['aev_plig_dir'],
+        model = "model_GATv2Net_ligsim90_fep_benchmark",
+
+    resources:
+        mem_mb = lambda wildcards: get_resources('rescoring').get('mem_mb', 32000),
+        cpus = lambda wildcards: get_resources('rescoring').get('cpus', 16),
+        runtime = lambda wildcards: get_resources('rescoring').get('time_min', 60),
+
+    shell:
+        """
+        cd {params.aev_plig_dir} && \
+        python process_and_predict.py \
+            --dataset_csv=data/lit_pcba.csv \
+            --data_name=example \
+            --trained_model_name={params.model} \
+            2>&1 | tee ../{log}
+        """
+
+
+rule update_manifest_aev_plig:
+    """
+    Update manifest with AEV-PLIG predictions.
+
+    Adds to manifest:
+      - binding_affinity_pK: converted from Vina score
+      - aev_plig_best_score: ensemble prediction
+      - aev_prediction_0-9: individual model predictions
+      - rescoring_status: set to True
+    """
+    input:
+        manifest = MANIFEST_PATH,
+        predictions = "AEV-PLIG/data/output/predictions/lit_pcba_predictions.csv",
+
+    output:
+        done = touch("data/logs/rescoring/aev_plig_complete.done"),
+
+    log:
+        "data/logs/rescoring/update_manifest_aev_plig.log"
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/update_manifest_aev_plig.py \
+            --manifest {input.manifest} \
+            --predictions {input.predictions} \
+            2>&1 | tee {log}
+        """
 
 
 # =============================================================================
@@ -229,12 +297,15 @@ rule rescore_target:
 
 rule rescore_all:
     """
-    Complete rescoring stage (data preparation).
+    Complete rescoring stage with AEV-PLIG predictions.
 
-    This prepares AEV-PLIG CSV files for all targets with docked ligands.
+    This runs the full AEV-PLIG pipeline:
+      1. Prepare input CSV from manifest
+      2. Run AEV-PLIG neural network predictions
+      3. Update manifest with predictions
     """
     input:
-        "data/logs/rescoring/rescoring_checkpoint.done"
+        "data/logs/rescoring/aev_plig_complete.done"
 
     message:
-        "Rescoring stage complete!"
+        "AEV-PLIG rescoring complete!"
