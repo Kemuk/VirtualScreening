@@ -134,7 +134,7 @@ rule run_aev_plig_shard:
         csv = "AEV-PLIG/data/shards/lit_pcba_shard_{shard}.csv",
 
     output:
-        predictions = "AEV-PLIG/data/output/shards/shard_{shard}_predictions.csv",
+        predictions = "AEV-PLIG/output/shards/shard_{shard}_predictions.csv",
 
     log:
         "data/logs/rescoring/run_aev_plig_shard_{shard}.log"
@@ -146,6 +146,7 @@ rule run_aev_plig_shard:
 
     shell:
         """
+        mkdir -p {params.aev_plig_dir}/output/shards
         cd {params.aev_plig_dir} && \
         python process_and_predict.py \
             --dataset_csv=data/shards/lit_pcba_shard_{params.shard}.csv \
@@ -154,10 +155,10 @@ rule run_aev_plig_shard:
             2>&1 | tee ../{log}
 
         # Move output to expected location
-        mv data/output/predictions/lit_pcba_shard_{params.shard}_predictions.csv \
-           data/output/shards/shard_{params.shard}_predictions.csv 2>/dev/null || \
-        mv data/output/predictions/shard_{params.shard}_predictions.csv \
-           data/output/shards/shard_{params.shard}_predictions.csv 2>/dev/null || true
+        mv output/predictions/lit_pcba_shard_{params.shard}_predictions.csv \
+           output/shards/shard_{params.shard}_predictions.csv 2>/dev/null || \
+        mv output/predictions/shard_{params.shard}_predictions.csv \
+           output/shards/shard_{params.shard}_predictions.csv 2>/dev/null || true
         """
 
 
@@ -166,10 +167,10 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        shards = expand("AEV-PLIG/data/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
+        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
 
     output:
-        merged = "AEV-PLIG/data/output/predictions/lit_pcba_predictions.csv",
+        merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
 
     log:
         "data/logs/rescoring/merge_aev_plig_predictions.log"
@@ -209,7 +210,7 @@ rule update_manifest_aev_plig:
     """
     input:
         manifest = MANIFEST_PATH,
-        predictions = "AEV-PLIG/data/output/predictions/lit_pcba_predictions.csv",
+        predictions = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
 
     output:
         done = touch("data/logs/rescoring/aev_plig_complete.done"),
@@ -244,7 +245,7 @@ rule run_aev_plig_single:
         csv = "AEV-PLIG/data/lit_pcba.csv",
 
     output:
-        predictions = "AEV-PLIG/data/output/predictions/lit_pcba_single_predictions.csv",
+        predictions = "AEV-PLIG/output/predictions/lit_pcba_single_predictions.csv",
 
     log:
         "data/logs/rescoring/run_aev_plig_single.log"
