@@ -5,8 +5,8 @@
 # This profile uses shorter time limits and the devel/short partition
 # for quick turnaround during testing.
 
-# Executor settings
-executor: slurm
+# Executor settings (Snakemake 7.x syntax)
+slurm: true
 jobs: 10                           # Limited concurrent jobs for testing
 latency-wait: 30                   # Shorter wait time
 retries: 1                         # Fewer retries during testing
