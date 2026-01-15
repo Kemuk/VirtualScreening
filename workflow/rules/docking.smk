@@ -3,21 +3,37 @@ docking.smk
 
 Snakemake rules for molecular docking using AutoDock Vina (GPU/CPU).
 
+Docking mode is controlled by config['docking']['mode']:
+  - 'gpu': Use GPU-accelerated Vina (default)
+  - 'cpu': Use CPU-based Vina
+
 Rules:
   - dock_ligand_gpu: Dock single ligand using GPU
   - dock_ligand_cpu: Dock single ligand using CPU
   - dock_all_gpu: Dock all ligands using GPU
   - dock_all_cpu: Dock all ligands using CPU
+  - dock_all: Dock all ligands using configured mode
 """
 
 import pandas as pd
 
 
 # =============================================================================
+# Configuration
+# =============================================================================
+
+# Docking mode from config (gpu or cpu)
+DOCKING_MODE = config.get('docking', {}).get('mode', 'gpu')
+
+
+# =============================================================================
 # Rule Order
 # =============================================================================
-# When both GPU and CPU rules can produce same output, prefer GPU
-ruleorder: dock_ligand_gpu > dock_ligand_cpu
+# When both GPU and CPU rules can produce same output, prefer based on config
+if DOCKING_MODE == 'gpu':
+    ruleorder: dock_ligand_gpu > dock_ligand_cpu
+else:
+    ruleorder: dock_ligand_cpu > dock_ligand_gpu
 
 
 # =============================================================================
@@ -311,12 +327,37 @@ rule dock_all_cpu:
 
 rule dock_all:
     """
-    Dock all prepared ligands (mode determined by config or user choice).
+    Dock all prepared ligands using the configured mode.
 
-    This is an alias that can be configured to use GPU or CPU.
+    Mode is determined by config['docking']['mode']:
+      - 'gpu': Uses GPU-accelerated Vina
+      - 'cpu': Uses CPU-based Vina
+
+    To override at runtime:
+      snakemake --config docking.mode=cpu dock_all
     """
     input:
-        "data/logs/docking/docking_checkpoint.done"
+        get_docked_ligands
 
     message:
-        "Docking stage complete!"
+        f"Docking complete using {DOCKING_MODE.upper()} mode!"
+
+
+# =============================================================================
+# Docking Mode Info
+# =============================================================================
+
+rule docking_info:
+    """
+    Print current docking configuration.
+    """
+    run:
+        print(f"\nDocking Configuration:")
+        print(f"  Mode: {DOCKING_MODE}")
+        print(f"  Vina binary: {config.get('tools', {}).get(f'vina_{DOCKING_MODE}', 'N/A')}")
+        print(f"  Exhaustiveness: {config.get('docking', {}).get('exhaustiveness', 8)}")
+        print(f"  Num modes: {config.get('docking', {}).get('num_modes', 9)}")
+        if DOCKING_MODE == 'gpu':
+            print(f"  GPU threads: {config.get('gpu', {}).get('threads', 8000)}")
+        else:
+            print(f"  CPU threads: {config.get('cpu', {}).get('threads', 8)}")

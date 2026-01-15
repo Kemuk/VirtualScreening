@@ -1,0 +1,121 @@
+# Snakemake SLURM Profile - Production
+# =====================================
+# Usage: snakemake --profile workflow/profiles/slurm <target>
+
+# Executor settings
+executor: slurm
+jobs: 100                          # Max concurrent jobs
+latency-wait: 60                   # Wait for files to appear (NFS lag)
+retries: 2                         # Retry failed jobs
+printshellcmds: true
+keep-going: true                   # Continue with independent jobs on failure
+
+# Default resources (applied to all rules unless overridden)
+default-resources:
+  slurm_partition: "short"
+  mem_mb: 8000
+  runtime: 30                      # minutes
+  cpus_per_task: 4
+
+# Per-rule resource overrides
+set-resources:
+  # =========================================
+  # Manifest & Preparation
+  # =========================================
+  create_manifest:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 32000
+    cpus_per_task: 16
+
+  prepare_receptor:
+    slurm_partition: "short"
+    runtime: 10
+    mem_mb: 4000
+    cpus_per_task: 2
+
+  prepare_all_ligands:
+    slurm_partition: "short"
+    runtime: 120
+    mem_mb: 16000
+    cpus_per_task: 16
+
+  # =========================================
+  # Docking
+  # =========================================
+  dock_ligand_gpu:
+    slurm_partition: "gpu"
+    slurm_extra: "'--gres=gpu:1 --clusters=htc'"
+    runtime: 720                   # 12 hours
+    mem_mb: 20000
+    cpus_per_task: 2
+
+  dock_ligand_cpu:
+    slurm_partition: "arc"
+    runtime: 720                   # 12 hours
+    mem_mb: 64000
+    cpus_per_task: 32
+
+  # =========================================
+  # SDF Conversion
+  # =========================================
+  convert_to_sdf:
+    slurm_partition: "short"
+    runtime: 30
+    mem_mb: 8000
+    cpus_per_task: 4
+
+  convert_all_sdf:
+    slurm_partition: "short"
+    runtime: 60
+    mem_mb: 16000
+    cpus_per_task: 8
+
+  # =========================================
+  # AEV-PLIG Rescoring
+  # =========================================
+  prepare_aev_plig_input:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 32000
+    cpus_per_task: 16
+
+  shard_aev_plig_csv:
+    slurm_partition: "short"
+    runtime: 10
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  run_aev_plig_shard:
+    slurm_partition: "gpu"
+    slurm_extra: "'--gres=gpu:1'"
+    runtime: 120                   # 2 hours per shard
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  merge_aev_plig_predictions:
+    slurm_partition: "short"
+    runtime: 10
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  update_manifest_aev_plig:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  # =========================================
+  # Results & Plotting
+  # =========================================
+  compute_results:
+    slurm_partition: "short"
+    runtime: 30
+    mem_mb: 32000
+    cpus_per_task: 16
+
+  make_plots:
+    slurm_partition: "short"
+    runtime: 30
+    mem_mb: 16000
+    cpus_per_task: 8
