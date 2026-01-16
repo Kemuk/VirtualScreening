@@ -5,8 +5,23 @@
 # This profile uses shorter time limits and the devel/short partition
 # for quick turnaround during testing.
 
-# Executor settings (Snakemake 7.x syntax)
-slurm: true
+# Use cluster submission for array job support
+cluster: >-
+  sbatch
+  --parsable
+  --job-name=vs_{rule}
+  --partition={resources.slurm_partition}
+  --time={resources.runtime}
+  --mem={resources.mem_mb}M
+  --cpus-per-task={resources.cpus_per_task}
+  --mail-user=reub0582@ox.ac.uk
+  --mail-type=END,FAIL
+  {resources.slurm_extra}
+
+cluster-status: "sacct -j {jobid} --format=State --noheader | head -1 | awk '{print $1}'"
+cluster-cancel: "scancel"
+
+# Job settings
 jobs: 10                           # Limited concurrent jobs for testing
 latency-wait: 5                    # Short wait time for devel
 retries: 1                         # Fewer retries during testing
@@ -19,7 +34,7 @@ default-resources:
   mem_mb: 4000
   runtime: 2                       # 2 minutes default
   cpus_per_task: 2
-  slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+  slurm_extra: ""
 
 # Per-rule resource overrides - all 2 minutes for testing
 set-resources:
@@ -49,7 +64,7 @@ set-resources:
   # =========================================
   dock_ligand_gpu:
     slurm_partition: "devel"
-    slurm_extra: "'--gres=gpu:1 --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "--gres=gpu:1"
     runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
@@ -92,7 +107,7 @@ set-resources:
 
   run_aev_plig_shard:
     slurm_partition: "devel"
-    slurm_extra: "'--gres=gpu:1 --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "--gres=gpu:1"
     runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
@@ -123,3 +138,10 @@ set-resources:
     runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
+
+# Group similar jobs together for array-like submission
+group-components:
+  run_aev_plig_shard: 5
+  dock_ligand_gpu: 5
+  dock_ligand_cpu: 5
+  convert_to_sdf: 10

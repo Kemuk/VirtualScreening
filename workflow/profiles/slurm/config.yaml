@@ -2,8 +2,23 @@
 # =====================================
 # Usage: snakemake --profile workflow/profiles/slurm <target>
 
-# Executor settings (Snakemake 7.x syntax)
-slurm: true
+# Use cluster submission for array job support
+cluster: >-
+  sbatch
+  --parsable
+  --job-name=vs_{rule}
+  --partition={resources.slurm_partition}
+  --time={resources.runtime}
+  --mem={resources.mem_mb}M
+  --cpus-per-task={resources.cpus_per_task}
+  --mail-user=reub0582@ox.ac.uk
+  --mail-type=END,FAIL
+  {resources.slurm_extra}
+
+cluster-status: "sacct -j {jobid} --format=State --noheader | head -1 | awk '{print $1}'"
+cluster-cancel: "scancel"
+
+# Job settings
 jobs: 100                          # Max concurrent jobs
 latency-wait: 60                   # Wait for files to appear (NFS lag)
 retries: 2                         # Retry failed jobs
@@ -16,7 +31,7 @@ default-resources:
   mem_mb: 8000
   runtime: 30                      # minutes
   cpus_per_task: 4
-  slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+  slurm_extra: ""
 
 # Per-rule resource overrides
 set-resources:
@@ -46,7 +61,7 @@ set-resources:
   # =========================================
   dock_ligand_gpu:
     slurm_partition: "gpu"
-    slurm_extra: "'--gres=gpu:1 --clusters=htc'"
+    slurm_extra: "--gres=gpu:1 --clusters=htc"
     runtime: 720                   # 12 hours
     mem_mb: 20000
     cpus_per_task: 2
@@ -89,7 +104,7 @@ set-resources:
 
   run_aev_plig_shard:
     slurm_partition: "gpu"
-    slurm_extra: "'--gres=gpu:1'"
+    slurm_extra: "--gres=gpu:1"
     runtime: 120                   # 2 hours per shard
     mem_mb: 16000
     cpus_per_task: 4
@@ -120,3 +135,10 @@ set-resources:
     runtime: 30
     mem_mb: 16000
     cpus_per_task: 8
+
+# Group similar jobs together for array-like submission
+group-components:
+  run_aev_plig_shard: 20
+  dock_ligand_gpu: 50
+  dock_ligand_cpu: 20
+  convert_to_sdf: 50
