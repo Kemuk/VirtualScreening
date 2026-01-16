@@ -135,6 +135,9 @@ include: "rules/conversion.smk"
 # Rescoring rules (AEV-PLIG)
 include: "rules/rescoring.smk"
 
+# Results computation and visualization
+include: "rules/results.smk"
+
 # Ligand-based methods (optional)
 # include: "workflow/rules/ligand_based.smk"
 

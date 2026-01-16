@@ -7,40 +7,54 @@ dataset: "LIT_PCBA"
 
 # Execution Mode
 # --------------
-# mode: 'test' or 'slurm'
-#   - test: Run interactively on subset of ligands (for testing)
-#   - slurm: Submit full dataset to SLURM cluster
-mode: "test"  # Default to test mode
+# mode: "devel", "test", or "production"
+#   - devel: Quick local testing with minimal data (1 target, ~100 ligands)
+#   - test: Intermediate testing with subset of data
+#   - production: Full dataset processing
+mode: "production"
 
-# Test Mode Configuration
-# ------------------------
+# Mode-specific settings
+# ----------------------
+devel:
+  targets: null                    # null = all targets, or list like ["ADRB2"]
+  actives_per_protein: 5
+  inactives_per_protein: 10
+  aev_plig_shards: 5
+
 test:
-  actives_per_protein: 100       # Number of actives per protein (if available)
-  inactives_per_protein: 900     # Number of inactives per protein
-  # Total: 1,000 ligands per protein in test mode
+  targets: null
+  actives_per_protein: 100
+  inactives_per_protein: 900
+  aev_plig_shards: 10
+
+production:
+  targets: null                    # All targets
+  actives_per_protein: null        # All actives (no limit)
+  inactives_per_protein: null      # All inactives (no limit)
+  aev_plig_shards: 100
 
 # Paths
 # -----
-dataset_dir: "LIT_PCBA"          # Root directory for target data
-manifest_dir: "data/master"       # Parquet manifest storage
-results_dir: "results"            # Analysis outputs
-logs_dir: "data/logs"             # Snakemake execution logs
+dataset_dir: "LIT_PCBA"            # Root directory for target data
+manifest_dir: "data/master"        # Parquet manifest storage
+results_dir: "results"             # Analysis outputs
+logs_dir: "data/logs"              # Snakemake execution logs
 
 # Targets configuration file
 targets_config: "config/targets.yaml"
 
-# Docking Parameters
-# ------------------
+# Docking Configuration
+# ---------------------
 docking:
-  exhaustiveness: 8               # Vina exhaustiveness (GNINA default)
-  num_modes: 9                    # Number of binding modes to generate
-  energy_range: 3                 # Energy range for binding modes (kcal/mol)
-  seed: 42                        # Random seed for reproducibility
+  mode: "gpu"                      # "gpu" or "cpu"
+  exhaustiveness: 8                # Vina exhaustiveness (GNINA default)
+  num_modes: 9                     # Number of binding modes to generate
+  energy_range: 3                  # Energy range for binding modes (kcal/mol)
+  seed: 42                         # Random seed for reproducibility
 
 # Default Box Sizes
 # -----------------
 # Used for all targets unless overridden in targets.yaml
-# These are GNINA-style defaults (MIN=18, MAX=36, PAD=16)
 default_box_size:
   x: 25.0
   y: 25.0
@@ -49,93 +63,57 @@ default_box_size:
 # GPU Settings
 # ------------
 gpu:
-  threads: 8000                   # GPU thread count for Vina-GPU
-  device_id: 0                    # Default CUDA device
+  threads: 8000                    # GPU thread count for Vina-GPU
+  device_id: 0                     # Default CUDA device
 
 # CPU Settings
 # ------------
 cpu:
-  threads: 8                      # CPU thread count for Vina
-  runtime_workers: 4              # Parallel docking jobs on CPU
+  threads: 8                       # CPU thread count for Vina
+  runtime_workers: 4               # Parallel docking jobs on CPU
 
 # Preparation Parameters
 # ----------------------
 preparation:
-  ph: 7.4                         # pH for protonation states
-  partial_charge: "gasteiger"     # Charge calculation method
-  gen3d: true                     # Generate 3D coordinates from SMILES
+  ph: 7.4                          # pH for protonation states
+  partial_charge: "gasteiger"      # Charge calculation method
+  gen3d: true                      # Generate 3D coordinates from SMILES
 
 # SDF Conversion
 # --------------
 sdf_conversion:
-  select_model: 0                 # Which binding mode to extract (0 = best)
+  select_model: 0                  # Which binding mode to extract (0 = best)
 
 # AEV-PLIG Rescoring
 # ------------------
 rescoring:
-  shard_total: 100                # Number of shards for parallel rescoring
-  enabled: true                   # Enable/disable AEV-PLIG rescoring
+  enabled: true                    # Enable/disable AEV-PLIG rescoring
+  model_name: "model_GATv2Net_ligsim90_fep_benchmark"
+
+# Results Configuration
+# ---------------------
+results:
+  bootstrap_iterations: 1000       # Bootstrap iterations for CIs
+  bedroc_alpha: 20.0               # BEDROC alpha parameter
+  enrichment_fractions:            # Fractions for enrichment factors
+    - 0.01
+    - 0.05
+    - 0.10
 
 # Ligand-Based Methods
 # --------------------
 ligand_based:
-  enabled: false                  # Enable/disable ligand-based screening
-  n_jobs: 8                       # Parallel jobs for ligand-based methods
+  enabled: false                   # Enable/disable ligand-based screening
+  n_jobs: 8                        # Parallel jobs for ligand-based methods
   methods:
-    - "fingerprint"               # Fingerprint similarity
-    - "shape"                     # Shape-based similarity
-    - "pharmacophore"             # Pharmacophore-based screening
-
-# Resource Allocation (for cluster profiles)
-# -------------------------------------------
-resources:
-  # Receptor and ligand preparation
-  preparation:
-    mem_mb: 16000
-    cpus: 16
-    time_min: 120
-    partition: "htc"
-
-  # GPU docking (Vina-GPU)
-  docking_gpu:
-    mem_mb: 20000
-    cpus: 2
-    gpus: 1
-    time_min: 720
-    partition: "htc"
-
-  # CPU docking (Vina)
-  docking_cpu:
-    mem_mb: 64000
-    cpus: 32
-    time_min: 720
-    partition: "arc"
-
-  # SDF conversion
-  sdf_conversion:
-    mem_mb: 8000
-    cpus: 4
-    time_min: 30
-    partition: "htc"
-
-  # AEV-PLIG rescoring
-  rescoring:
-    mem_mb: 32000
-    cpus: 16
-    time_min: 20
-    partition: "htc"
-
-  # Ligand-based methods
-  ligand_based:
-    mem_mb: 20000
-    cpus: 8
-    time_min: 30
-    partition: "htc"
+    - "fingerprint"
+    - "shape"
+    - "pharmacophore"
 
 # External Tools
 # --------------
 tools:
   vina_gpu: "vina-gpu-dev/QuickVina2-GPU-2-1"
-  vina_cpu: "vina"                # Assume vina in PATH or specify full path
-  obabel: "obabel"                # OpenBabel for conversions
-  aev_plig_dir: "AEV-PLIG"        # AEV-PLIG installation directory
+  vina_cpu: "vina"
+  obabel: "obabel"
+  aev_plig_dir: "AEV-PLIG"

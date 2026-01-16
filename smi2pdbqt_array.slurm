@@ -19,7 +19,7 @@ module purge
 source $(conda info --base)/etc/profile.d/conda.sh
 
 # Activate your specific environment from your $DATA directory
-conda activate "$DATA/vscreen_env"
+conda activate "$DATA/snakemake_env"
 
 # --- VERIFICATION ---
 # Verify that the tools from your environment are now in the PATH

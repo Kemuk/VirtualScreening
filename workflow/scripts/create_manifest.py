@@ -4,7 +4,7 @@ create_manifest.py
 
 Generate the master manifest (Parquet) from targets.yaml configuration.
 Scans the filesystem for existing SMILES files and outputs, creating a
-comprehensive tracking table with 29 columns.
+comprehensive tracking table with 40 columns.
 
 This manifest serves as the single source of truth for pipeline state.
 """
@@ -22,7 +22,7 @@ from rdkit import Chem
 from tqdm import tqdm
 
 
-# 29-column manifest schema
+# 40-column manifest schema
 MANIFEST_SCHEMA = pa.schema([
     # Identity (5 columns)
     ('ligand_id', pa.string()),
@@ -62,10 +62,21 @@ MANIFEST_SCHEMA = pa.schema([
     ('docking_log_path', pa.string()),
     ('vina_score', pa.float64()),
 
-    # Rescoring (3 columns)
+    # Rescoring (14 columns)
     ('rescoring_status', pa.bool_()),
     ('docked_sdf_path', pa.string()),
-    ('aev_plig_score', pa.float64()),
+    ('binding_affinity_pK', pa.float64()),
+    ('aev_plig_best_score', pa.float64()),
+    ('aev_prediction_0', pa.float64()),
+    ('aev_prediction_1', pa.float64()),
+    ('aev_prediction_2', pa.float64()),
+    ('aev_prediction_3', pa.float64()),
+    ('aev_prediction_4', pa.float64()),
+    ('aev_prediction_5', pa.float64()),
+    ('aev_prediction_6', pa.float64()),
+    ('aev_prediction_7', pa.float64()),
+    ('aev_prediction_8', pa.float64()),
+    ('aev_prediction_9', pa.float64()),
 
     # Metadata (2 columns)
     ('created_at', pa.timestamp('ns')),
@@ -292,7 +303,9 @@ def create_ligand_entry(
 
     # Check rescoring status
     rescoring_status = False  # Will be updated by rescoring stage
-    aev_plig_score = None
+    binding_affinity_pK = None
+    aev_plig_best_score = None
+    aev_predictions = [None] * 10  # aev_prediction_0 through aev_prediction_9
 
     # Convert paths to relative (from project root)
     now = datetime.now()
@@ -339,7 +352,18 @@ def create_ligand_entry(
         # Rescoring
         'rescoring_status': rescoring_status,
         'docked_sdf_path': str(docked_sdf_path.relative_to(project_root)),
-        'aev_plig_score': aev_plig_score,
+        'binding_affinity_pK': binding_affinity_pK,
+        'aev_plig_best_score': aev_plig_best_score,
+        'aev_prediction_0': aev_predictions[0],
+        'aev_prediction_1': aev_predictions[1],
+        'aev_prediction_2': aev_predictions[2],
+        'aev_prediction_3': aev_predictions[3],
+        'aev_prediction_4': aev_predictions[4],
+        'aev_prediction_5': aev_predictions[5],
+        'aev_prediction_6': aev_predictions[6],
+        'aev_prediction_7': aev_predictions[7],
+        'aev_prediction_8': aev_predictions[8],
+        'aev_prediction_9': aev_predictions[9],
 
         # Metadata
         'created_at': now,

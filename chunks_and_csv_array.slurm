@@ -15,7 +15,7 @@ export LC_ALL=C
 module purge || true
 module load parallel || true
 module load Anaconda3 || true
-source activate "/data/stat-cadd/reub0582/vscreen_env" || { echo "ERROR: failed to activate conda env"; exit 99; }
+source activate "/data/stat-cadd/reub0582/snakemake_env" || { echo "ERROR: failed to activate conda env"; exit 99; }
 
 cd "${SLURM_SUBMIT_DIR}/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 99; }
 

@@ -19,7 +19,7 @@ set -x
 
 module purge || true
 module load Anaconda3
-conda activate /data/stat-cadd/reub0582/vscreen_env
+conda activate /data/stat-cadd/reub0582/snakemake_env
 
 
 python3 make_aev_plig.py --csv LIT_PCBA/vina_boxes.csv --out LIT_PCBA/aev_plig.csv --shard_total 100
