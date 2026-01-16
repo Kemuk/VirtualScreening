@@ -19,6 +19,7 @@ default-resources:
   mem_mb: 4000
   runtime: 10                      # 10 minutes default
   cpus_per_task: 2
+  slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
 
 # Per-rule resource overrides - all shortened for testing
 set-resources:
