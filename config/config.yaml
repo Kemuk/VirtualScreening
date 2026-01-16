@@ -17,8 +17,8 @@ mode: "production"
 # ----------------------
 devel:
   targets: null                    # null = all targets, or list like ["ADRB2"]
-  actives_per_protein: 10
-  inactives_per_protein: 90
+  actives_per_protein: 5
+  inactives_per_protein: 10
   aev_plig_shards: 2
 
 test:
