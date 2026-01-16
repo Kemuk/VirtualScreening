@@ -14,7 +14,7 @@ ulimit -s 8192 || true
 module purge || true
 module load Anaconda3 Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 OpenMPI/4.1.1-GCC-11.2.0
 cd "$SLURM_SUBMIT_DIR"
-source activate ../vscreen_env
+source activate ../snakemake_env
 mkdir -p logs
 
 CSV="LIT_PCBA/vina_boxes.csv"

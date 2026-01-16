@@ -29,7 +29,7 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 mkdir -p logs
 
 # activate conda environment robustly
-conda activate ../vscreen_env
+conda activate ../snakemake_env
 
 export PYTHONUNBUFFERED=1
 

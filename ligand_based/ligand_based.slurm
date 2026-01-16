@@ -29,7 +29,7 @@ module load Anaconda3 || true
 conda config --set auto_activate_base false
 eval "$(conda shell.bash hook)"
 module load Boost/1.77.0-GCC-11.2.0 CUDA || true
-conda activate /data/stat-cadd/reub0582/vscreen_env
+conda activate /data/stat-cadd/reub0582/snakemake_env
 
 # Use working directory (where you submit) not the spooled script location
 SCRIPT_DIR="$PWD"
@@ -62,7 +62,7 @@ mkfifo "$FIFO"
 awk -v id0="$ID0" -v m="$N" 'NR==1 || (NR>1 && ((NR-2)%m)==id0)' "$MANIFEST" > "$FIFO" & WRITER=$!
 
 # Use Python from the activated conda env and emit diagnostics
-PY_EXE="${CONDA_PREFIX:-/data/stat-cadd/reub0582/vscreen_env}/bin/python"
+PY_EXE="${CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_env}/bin/python"
 # print interpreter and oddt availability to the python stderr log for debugging
 "$PY_EXE" - <<'PYDIAG' 1>&2 || true
 import sys, pkgutil

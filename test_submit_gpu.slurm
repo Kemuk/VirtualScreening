@@ -24,7 +24,7 @@ module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
 # ensure we start in the submit directory
 cd "$SLURM_SUBMIT_DIR"
 
-source activate ../vscreen_env || true
+source activate ../snakemake_env || true
 mkdir -p logs
 
 export PYTHONUNBUFFERED=1

@@ -21,7 +21,7 @@ module load Anaconda3 || true
 module load AutoDock-Vina/1.2.3-foss-2021b || true
 
 cd "$SLURM_SUBMIT_DIR"
-source activate ../vscreen_env      # adjust this path to your environment
+source activate ../snakemake_env      # adjust this path to your environment
 mkdir -p logs
 
 # avoid oversubscription

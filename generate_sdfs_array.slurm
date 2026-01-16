@@ -15,9 +15,9 @@ set -euo pipefail
 module purge || true
 module load Anaconda3
 module load parallel
-source activate /data/stat-cadd/reub0582/vscreen_env
+source activate /data/stat-cadd/reub0582/snakemake_env
 
-OBABEL=/data/stat-cadd/reub0582/vscreen_env/bin/obabel
+OBABEL=/data/stat-cadd/reub0582/snakemake_env/bin/obabel
 MAIL_TO="Reub0582@ox.ac.uk"
 
 cd "$SLURM_SUBMIT_DIR/LIT_PCBA" || { echo "ERROR: LIT_PCBA not found"; exit 1; }
