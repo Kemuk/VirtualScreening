@@ -13,13 +13,6 @@ retries: 1                         # Fewer retries during testing
 printshellcmds: true
 keep-going: false                  # Stop on first failure during testing
 
-# Group same-rule jobs into arrays of up to 10
-group-components:
-  run_aev_plig_shard: 10
-  dock_ligand_gpu: 10
-  dock_ligand_cpu: 10
-  convert_to_sdf: 10
-
 # Default resources - use devel partition with short times
 default-resources:
   slurm_partition: "devel"

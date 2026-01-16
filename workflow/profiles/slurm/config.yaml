@@ -10,13 +10,6 @@ retries: 2                         # Retry failed jobs
 printshellcmds: true
 keep-going: true                   # Continue with independent jobs on failure
 
-# Group same-rule jobs into arrays of up to 100
-group-components:
-  run_aev_plig_shard: 100
-  dock_ligand_gpu: 100
-  dock_ligand_cpu: 100
-  convert_to_sdf: 100
-
 # Default resources (applied to all rules unless overridden)
 default-resources:
   slurm_partition: "short"
