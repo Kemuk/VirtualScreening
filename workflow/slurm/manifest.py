@@ -18,6 +18,12 @@ import time
 
 
 # Stage dependencies and status columns
+# Note: Only these status columns exist in manifest:
+#   - preparation_status (ligand prep)
+#   - docking_status
+#   - rescoring_status
+# Other stages don't have dedicated status columns
+
 STAGE_CONFIG = {
     'manifest': {
         'status_column': None,  # No status tracking for manifest creation
@@ -25,7 +31,7 @@ STAGE_CONFIG = {
         'filter_column': None,
     },
     'receptors': {
-        'status_column': 'receptor_status',
+        'status_column': None,  # No status column - check file existence
         'depends_on': None,
         'filter_column': None,
         'group_by': 'protein_id',  # One task per target
@@ -41,27 +47,27 @@ STAGE_CONFIG = {
         'filter_column': None,
     },
     'conversion': {
-        'status_column': 'conversion_status',
+        'status_column': None,  # No status column - uses docking_status as proxy
         'depends_on': 'docking_status',
         'filter_column': None,
     },
     'aev_prep': {
-        'status_column': 'aev_prep_status',
-        'depends_on': 'conversion_status',
+        'status_column': None,  # No status column
+        'depends_on': 'docking_status',
         'filter_column': None,
     },
     'aev_infer': {
         'status_column': 'rescoring_status',
-        'depends_on': 'aev_prep_status',
+        'depends_on': 'docking_status',
         'filter_column': None,
     },
     'aev_merge': {
-        'status_column': 'aev_merge_status',
+        'status_column': None,  # No status column
         'depends_on': 'rescoring_status',
         'filter_column': None,
     },
     'results': {
-        'status_column': 'results_status',
+        'status_column': None,  # No status column
         'depends_on': 'rescoring_status',
         'filter_column': None,
         'group_by': 'protein_id',  # One task per target
