@@ -43,7 +43,7 @@ echo "========================================"
 module purge || true
 module load Anaconda3 || true
 module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
-module load OpenBabel || true
+module load OpenBabel/3.1.1-gompi-2019b-Python-3.7.4 || true
 
 # Activate the conda environment from an absolute prefix
 SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_env}"
@@ -53,7 +53,8 @@ SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_e
 source activate "$SNAKEMAKE_PREFIX"
 export PYTHONNOUSERSITE=1
 
-echo "Python: $(which python)"
+PYTHON_BIN="${SNAKEMAKE_PREFIX}/bin/python"
+echo "Python: ${PYTHON_BIN}"
 echo "Conda env: ${CONDA_DEFAULT_ENV:-none}"
 echo "========================================"
 
@@ -61,7 +62,7 @@ echo "========================================"
 cd "${SLURM_SUBMIT_DIR:-.}"
 
 # Run worker
-python -m workflow.slurm.run \
+"${PYTHON_BIN}" -m workflow.slurm.run \
     --stage "${STAGE}" \
     --worker \
     --chunk-id "${TASK_ID}" \
