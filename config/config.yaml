@@ -143,9 +143,10 @@ slurm:
 
   # Stage-specific overrides (optional)
   # If not specified, uses defaults from run.py
+  # NOTE: docking partition is determined by docking.mode (gpu -> htc, cpu -> arc)
   stages:
     docking:
-      partition: arc
+      # partition: determined by docking.mode above
       time: 60
       mem: "16G"
     aev_infer:

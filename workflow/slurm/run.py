@@ -154,6 +154,18 @@ def run_orchestrator(
     config = load_config(config_path)
     stage_config = STAGES[stage].copy()
 
+    # Apply config-driven partition/GPU selection for docking stage
+    if stage == 'docking':
+        docking_mode = config.get('docking', {}).get('mode', 'cpu')
+        if docking_mode == 'gpu':
+            stage_config['partition'] = 'htc'
+            stage_config['gres'] = 'gpu:1'
+            print(f"Docking mode: GPU (partition=htc, gres=gpu:1)")
+        else:
+            stage_config['partition'] = 'arc'
+            stage_config.pop('gres', None)  # Remove gres if present
+            print(f"Docking mode: CPU (partition=arc)")
+
     # Apply devel overrides
     if devel:
         max_items = max_items or DEVEL_CONFIG['max_items']
