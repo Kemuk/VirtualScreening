@@ -17,6 +17,8 @@
 
 set -euo pipefail
 
+ulimit -s unlimited || true
+
 # Arguments
 STAGE="${1:?Stage name required}"
 CHUNK_DIR="${2:?Chunk directory required}"
@@ -38,12 +40,8 @@ echo "Time: $(date)"
 echo "========================================"
 
 # Load required modules (ARC guidance: load Anaconda, then activate)
-if [[ -z "${PS1-}" ]]; then
-    PS1=""
-fi
 module purge || true
-ANACONDA_MODULE="${ANACONDA_MODULE:-Anaconda3/2020.11}"
-module load "${ANACONDA_MODULE}" || module load Anaconda3 || true
+module load Anaconda3 || true
 module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
 
 # Activate the conda environment from $DATA to avoid $HOME
