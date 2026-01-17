@@ -37,58 +37,25 @@ echo "Node: $(hostname)"
 echo "Time: $(date)"
 echo "========================================"
 
-# Load required modules
-module load Anaconda3 || true
+# Load required modules (ARC guidance: load Anaconda, then activate)
+ANACONDA_MODULE="${ANACONDA_MODULE:-Anaconda3/2020.11}"
+module load "${ANACONDA_MODULE}" || module load Anaconda3 || true
 module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
 
-# Initialize conda - try multiple methods
-# Method 1: Use conda.sh from common locations
-CONDA_PATHS=(
-    "${HOME}/miniconda3/etc/profile.d/conda.sh"
-    "${HOME}/anaconda3/etc/profile.d/conda.sh"
-    "/opt/conda/etc/profile.d/conda.sh"
-    "/apps/system/easybuild/software/Anaconda3/2025.06-1/etc/profile.d/conda.sh"
-)
-
-CONDA_INITIALIZED=false
-for conda_sh in "${CONDA_PATHS[@]}"; do
-    if [[ -f "$conda_sh" ]]; then
-        # shellcheck source=/dev/null
-        source "$conda_sh"
-        if type conda 2>/dev/null | grep -q "function"; then
-            CONDA_INITIALIZED=true
-            break
-        fi
-    fi
-done
-
-# Method 2: If conda command exists, use shell hook
-if [[ "$CONDA_INITIALIZED" != "true" ]] && command -v conda &> /dev/null; then
-    eval "$(conda shell.bash hook)" 2>/dev/null || true
-    if type conda 2>/dev/null | grep -q "function"; then
-        CONDA_INITIALIZED=true
-    fi
-fi
-
-# Method 3: Fallback to conda init if still not initialized
-if [[ "$CONDA_INITIALIZED" != "true" ]] && command -v conda &> /dev/null; then
-    conda init bash >/dev/null 2>&1 || true
-    if [[ -f "${HOME}/.bashrc" ]]; then
-        # shellcheck source=/dev/null
-        source "${HOME}/.bashrc" 2>/dev/null || true
-    fi
-    if type conda 2>/dev/null | grep -q "function"; then
-        CONDA_INITIALIZED=true
-    fi
-fi
-
-# Activate the snakemake environment
+# Activate the conda environment from $DATA to avoid $HOME
 SNAKEMAKE_ENV="${SNAKEMAKE_CONDA_ENV:-snakemake_env}"
-if [[ "$CONDA_INITIALIZED" == "true" ]]; then
-    conda activate "$SNAKEMAKE_ENV" 2>/dev/null || \
-    conda activate /data/stat-cadd/reub0582/snakemake_env 2>/dev/null || \
-    conda activate base 2>/dev/null || true
+SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-}"
+if [[ -z "$SNAKEMAKE_PREFIX" ]]; then
+    if [[ "$SNAKEMAKE_ENV" == /* ]]; then
+        SNAKEMAKE_PREFIX="$SNAKEMAKE_ENV"
+    else
+        SNAKEMAKE_PREFIX="${DATA:?DATA not set}/$SNAKEMAKE_ENV"
+    fi
 fi
+
+# ARC guidance: prefer "source activate" in batch scripts
+# shellcheck source=/dev/null
+source activate "$SNAKEMAKE_PREFIX"
 
 echo "Python: $(which python)"
 echo "Conda env: ${CONDA_DEFAULT_ENV:-none}"
