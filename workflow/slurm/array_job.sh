@@ -53,16 +53,33 @@ CONDA_PATHS=(
 CONDA_INITIALIZED=false
 for conda_sh in "${CONDA_PATHS[@]}"; do
     if [[ -f "$conda_sh" ]]; then
+        # shellcheck source=/dev/null
         source "$conda_sh"
-        CONDA_INITIALIZED=true
-        break
+        if type conda 2>/dev/null | grep -q "function"; then
+            CONDA_INITIALIZED=true
+            break
+        fi
     fi
 done
 
 # Method 2: If conda command exists, use shell hook
 if [[ "$CONDA_INITIALIZED" != "true" ]] && command -v conda &> /dev/null; then
     eval "$(conda shell.bash hook)" 2>/dev/null || true
-    CONDA_INITIALIZED=true
+    if type conda 2>/dev/null | grep -q "function"; then
+        CONDA_INITIALIZED=true
+    fi
+fi
+
+# Method 3: Fallback to conda init if still not initialized
+if [[ "$CONDA_INITIALIZED" != "true" ]] && command -v conda &> /dev/null; then
+    conda init bash >/dev/null 2>&1 || true
+    if [[ -f "${HOME}/.bashrc" ]]; then
+        # shellcheck source=/dev/null
+        source "${HOME}/.bashrc" 2>/dev/null || true
+    fi
+    if type conda 2>/dev/null | grep -q "function"; then
+        CONDA_INITIALIZED=true
+    fi
 fi
 
 # Activate the snakemake environment
