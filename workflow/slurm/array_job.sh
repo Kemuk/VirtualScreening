@@ -38,6 +38,7 @@ echo "Time: $(date)"
 echo "========================================"
 
 # Load required modules (ARC guidance: load Anaconda, then activate)
+module purge || true
 ANACONDA_MODULE="${ANACONDA_MODULE:-Anaconda3/2020.11}"
 module load "${ANACONDA_MODULE}" || module load Anaconda3 || true
 module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
