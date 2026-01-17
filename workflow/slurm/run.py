@@ -154,25 +154,25 @@ def run_orchestrator(
     config = load_config(config_path)
     stage_config = STAGES[stage].copy()
 
-    # Apply config-driven partition/GPU selection for docking stage
+    # Apply config-driven cluster/GPU selection for docking stage
     if stage == 'docking':
         docking_mode = config.get('docking', {}).get('mode', 'cpu')
         if docking_mode == 'gpu':
             stage_config['partition'] = 'htc'
             stage_config['gres'] = 'gpu:1'
-            print(f"Docking mode: GPU (partition=htc, gres=gpu:1)")
+            print("Docking mode: GPU (cluster=htc, gres=gpu:1)")
         else:
             stage_config['partition'] = 'arc'
             stage_config.pop('gres', None)  # Remove gres if present
-            print(f"Docking mode: CPU (partition=arc)")
+            print("Docking mode: CPU (cluster=arc)")
 
     # Apply devel overrides
+    cluster = stage_config['partition']
+    partition = None
     if devel:
         max_items = max_items or DEVEL_CONFIG['max_items']
         time_limit = time_limit or DEVEL_CONFIG['time']
-        # Only use devel partition for non-GPU stages (GPU stages stay on htc)
-        if 'gres' not in stage_config:
-            stage_config['partition'] = DEVEL_CONFIG['partition']
+        partition = DEVEL_CONFIG['partition']
 
     if time_limit:
         stage_config['time'] = time_limit
@@ -242,9 +242,10 @@ def run_orchestrator(
         return True
 
     # Create chunks
-    partition = stage_config['partition']
-    print(f"\nCreating chunks (partition={partition})...")
-    n_chunks = create_chunks(items, chunk_dir, stage, partition)
+    queue_profile = partition or stage_config['partition']
+    partition_label = partition or "none"
+    print(f"\nCreating chunks (cluster={cluster}, partition={partition_label})...")
+    n_chunks = create_chunks(items, chunk_dir, stage, queue_profile)
     print(f"Created {n_chunks} chunks")
 
     # Submit array job
@@ -252,6 +253,7 @@ def run_orchestrator(
     job_id = submit_array(
         stage=stage,
         n_chunks=n_chunks,
+        cluster=cluster,
         partition=partition,
         time_minutes=stage_config['time'],
         mem=stage_config['mem'],

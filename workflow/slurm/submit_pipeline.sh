@@ -16,7 +16,8 @@ set -euo pipefail
 # Defaults
 DEVEL=""
 STAGE="all"
-PARTITION="devel"
+CLUSTER="arc"
+PARTITION=""
 TIME="00:30:00"      # 30 minutes for orchestrator (it just submits/waits)
 MEM="4G"
 CONFIG="config/config.yaml"
@@ -66,14 +67,21 @@ echo "Virtual Screening Pipeline Submission"
 echo "========================================"
 echo "Project root: ${PROJECT_ROOT}"
 echo "Stage: ${STAGE}"
-echo "Partition: ${PARTITION}"
+echo "Cluster: ${CLUSTER}"
+echo "Partition: ${PARTITION:-none}"
 echo "Time limit: ${TIME}"
 echo "Devel mode: ${DEVEL:-no}"
 echo "========================================"
 
 # Submit orchestrator job
+PARTITION_FLAG=()
+if [[ -n "${PARTITION}" ]]; then
+    PARTITION_FLAG=(--partition="${PARTITION}")
+fi
+
 JOB_ID=$(sbatch \
-    --partition="${PARTITION}" \
+    --clusters="${CLUSTER}" \
+    "${PARTITION_FLAG[@]}" \
     --time="${TIME}" \
     --mem="${MEM}" \
     --job-name="vs-orchestrator" \

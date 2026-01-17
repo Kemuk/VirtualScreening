@@ -20,7 +20,7 @@ from typing import Optional
 import pandas as pd
 
 
-# SLURM partition limits
+# SLURM queue limits (cluster or partition key)
 PARTITION_CONFIG = {
     'arc': {
         'max_array_size': 5000,
@@ -57,7 +57,7 @@ def create_chunks(
         items: DataFrame of items to process
         chunk_dir: Directory to write chunk files
         stage: Stage name (for subdirectory)
-        partition: SLURM partition (determines max array size)
+        partition: Queue profile key (determines max array size)
 
     Returns:
         Number of chunks created
@@ -120,7 +120,8 @@ def read_chunk(chunk_dir: Path, stage: str, chunk_id: int) -> list:
 def submit_array(
     stage: str,
     n_chunks: int,
-    partition: str,
+    cluster: Optional[str],
+    partition: Optional[str],
     time_minutes: int,
     mem: str,
     script_path: Path,
@@ -136,7 +137,8 @@ def submit_array(
     Args:
         stage: Stage name
         n_chunks: Number of array tasks
-        partition: SLURM partition
+        cluster: SLURM cluster name (e.g., arc, htc)
+        partition: SLURM partition (e.g., devel)
         time_minutes: Time limit in minutes
         mem: Memory allocation (e.g., '8G')
         script_path: Path to array_job.sh
@@ -166,13 +168,18 @@ def submit_array(
     cmd = [
         'sbatch',
         f'--array=0-{n_chunks - 1}',
-        f'--partition={partition}',
         f'--time={time_str}',
         f'--mem={mem}',
         f'--job-name=vs-{stage}',
         f'--output={stage_logs}/slurm_%A_%a.out',
         f'--error={stage_logs}/slurm_%A_%a.err',
     ]
+
+    if cluster:
+        cmd.append(f'--clusters={cluster}')
+
+    if partition:
+        cmd.append(f'--partition={partition}')
 
     if gres:
         cmd.append(f'--gres={gres}')
