@@ -43,7 +43,6 @@ echo "========================================"
 module purge || true
 module load Anaconda3 || true
 module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
-module load OpenBabel/3.1.1-gompi-2019b-Python-3.7.4 || true
 
 # Activate the conda environment from an absolute prefix
 SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_env}"
