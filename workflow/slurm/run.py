@@ -171,6 +171,7 @@ def run_orchestrator(
         max_items = max_items or DEVEL_CONFIG['max_items']
         time_limit = time_limit or DEVEL_CONFIG['time']
         stage_config['partition'] = DEVEL_CONFIG['partition']
+        stage_config.pop('gres', None)  # Devel partition has no GPUs
 
     if time_limit:
         stage_config['time'] = time_limit
