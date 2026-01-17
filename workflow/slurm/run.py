@@ -151,6 +151,7 @@ def run_orchestrator(
         print(f"Valid stages: {list(STAGES.keys())}", file=sys.stderr)
         return False
 
+    config_path = config_path.resolve()
     config = load_config(config_path)
     stage_config = STAGES[stage].copy()
 
