@@ -43,21 +43,15 @@ echo "========================================"
 module purge || true
 module load Anaconda3 || true
 module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
+module load OpenBabel || true
 
-# Activate the conda environment from $DATA to avoid $HOME
-SNAKEMAKE_ENV="${SNAKEMAKE_CONDA_ENV:-snakemake_env}"
-SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-}"
-if [[ -z "$SNAKEMAKE_PREFIX" ]]; then
-    if [[ "$SNAKEMAKE_ENV" == /* ]]; then
-        SNAKEMAKE_PREFIX="$SNAKEMAKE_ENV"
-    else
-        SNAKEMAKE_PREFIX="${DATA:?DATA not set}/$SNAKEMAKE_ENV"
-    fi
-fi
+# Activate the conda environment from an absolute prefix
+SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_env}"
 
 # ARC guidance: prefer "source activate" in batch scripts
 # shellcheck source=/dev/null
 source activate "$SNAKEMAKE_PREFIX"
+export PYTHONNOUSERSITE=1
 
 echo "Python: $(which python)"
 echo "Conda env: ${CONDA_DEFAULT_ENV:-none}"
