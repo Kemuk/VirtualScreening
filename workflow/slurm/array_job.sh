@@ -38,6 +38,9 @@ echo "Time: $(date)"
 echo "========================================"
 
 # Load required modules (ARC guidance: load Anaconda, then activate)
+if [[ -z "${PS1-}" ]]; then
+    PS1=""
+fi
 module purge || true
 ANACONDA_MODULE="${ANACONDA_MODULE:-Anaconda3/2020.11}"
 module load "${ANACONDA_MODULE}" || module load Anaconda3 || true
