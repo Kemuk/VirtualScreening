@@ -138,6 +138,60 @@ def pdbqt_to_sdf(
             tmp_pdbqt.unlink()
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of PDBQT to SDF conversions.
+
+    Called by the SLURM worker to process a chunk of items.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'error'
+    """
+    results = []
+    model_index = config.get('sdf_conversion', {}).get('select_model', 0)
+
+    for item in items:
+        ligand_id = item['ligand_id']
+
+        try:
+            # Get paths from manifest item
+            pdbqt_path = Path(item['docked_pdbqt_path'])
+            sdf_path = Path(item['docked_sdf_path'])
+
+            # Convert PDBQT to SDF
+            success = pdbqt_to_sdf(
+                pdbqt_path=pdbqt_path,
+                sdf_path=sdf_path,
+                model_index=model_index,
+            )
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': success,
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert docked PDBQT to SDF format",

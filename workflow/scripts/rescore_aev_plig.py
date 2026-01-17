@@ -281,6 +281,68 @@ def process_manifest_for_target(
     return len(results)
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of ligands for AEV-PLIG rescoring.
+
+    Called by the SLURM worker to process a chunk of items.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'score', 'error'
+    """
+    results = []
+
+    for item in items:
+        ligand_id = item['ligand_id']
+
+        try:
+            # Process ligand for rescoring
+            result = process_ligand_for_rescoring(
+                ligand_id=ligand_id,
+                protein_id=item['protein_id'],
+                sdf_path=Path(item['docked_sdf_path']),
+                pdbqt_path=Path(item['docked_pdbqt_path']),
+                receptor_pdbqt=Path(item['receptor_pdbqt_path']),
+                is_active=item['is_active'],
+            )
+
+            if result is not None:
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': True,
+                    'score': result.get('pK'),
+                    'docking_score': result.get('DockingScore'),
+                    'data': result,  # Full data for CSV
+                })
+            else:
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': 'Failed to compute properties or parse affinity',
+                })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Prepare AEV-PLIG rescoring data from manifest"

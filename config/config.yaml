@@ -117,3 +117,43 @@ tools:
   vina_cpu: "vina"
   obabel: "obabel"
   aev_plig_dir: "AEV-PLIG"
+
+# =============================================================================
+# SLURM Array Job Configuration
+# =============================================================================
+# Stage-specific settings for the SLURM orchestrator.
+# Override defaults in workflow/slurm/run.py
+
+slurm:
+  # Partition limits (from cluster configuration)
+  partitions:
+    arc:
+      max_array_size: 5000
+      default_time: 60        # minutes
+      default_mem: "8G"
+    htc:
+      max_array_size: 1000
+      default_time: 120
+      default_mem: "16G"
+      gres: "gpu:1"
+    devel:
+      max_array_size: 100
+      default_time: 1
+      default_mem: "4G"
+
+  # Stage-specific overrides (optional)
+  # If not specified, uses defaults from run.py
+  stages:
+    docking:
+      partition: arc
+      time: 60
+      mem: "16G"
+    aev_infer:
+      partition: htc
+      time: 120
+      mem: "16G"
+      gres: "gpu:1"
+    conversion:
+      partition: arc
+      time: 10
+      mem: "4G"
