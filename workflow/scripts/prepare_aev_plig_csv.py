@@ -126,6 +126,90 @@ def prepare_aev_plig_csv(
     return len(output_df)
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of ligands for AEV-PLIG CSV preparation.
+
+    Called by the SLURM worker to process a chunk of items.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'data'
+    """
+    results = []
+    project_root = Path.cwd()
+
+    for item in items:
+        ligand_id = item['ligand_id']
+
+        try:
+            # Check if docking is complete
+            if not item.get('docking_status'):
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': 'Docking not complete',
+                })
+                continue
+
+            # Check for valid SDF file
+            sdf_path = Path(item['docked_sdf_path'])
+            if not sdf_path.exists():
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': f'SDF file not found: {sdf_path}',
+                })
+                continue
+
+            # Check for valid Vina score
+            vina_score = item.get('vina_score')
+            if vina_score is None or pd.isna(vina_score):
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': 'No Vina score',
+                })
+                continue
+
+            # Compute pK
+            pK = vina_score_to_pK(vina_score)
+
+            # Build result data
+            pdb_path = Path(item['receptor_pdb_path'])
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': True,
+                'data': {
+                    'unique_id': item['compound_key'],
+                    'pK': pK,
+                    'sdf_file': str(sdf_path.resolve()),
+                    'pdb_file': str(pdb_path.resolve()),
+                },
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate AEV-PLIG input CSV from manifest"

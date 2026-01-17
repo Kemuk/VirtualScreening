@@ -37,15 +37,37 @@ echo "Node: $(hostname)"
 echo "Time: $(date)"
 echo "========================================"
 
-# Activate conda environment
-if [[ -f "${HOME}/miniconda3/etc/profile.d/conda.sh" ]]; then
-    source "${HOME}/miniconda3/etc/profile.d/conda.sh"
-elif [[ -f "/opt/conda/etc/profile.d/conda.sh" ]]; then
-    source "/opt/conda/etc/profile.d/conda.sh"
+# Initialize conda - try multiple methods
+# Method 1: Use conda.sh from common locations
+CONDA_PATHS=(
+    "${HOME}/miniconda3/etc/profile.d/conda.sh"
+    "${HOME}/anaconda3/etc/profile.d/conda.sh"
+    "/opt/conda/etc/profile.d/conda.sh"
+    "/apps/system/easybuild/software/Anaconda3/2025.06-1/etc/profile.d/conda.sh"
+)
+
+CONDA_INITIALIZED=false
+for conda_sh in "${CONDA_PATHS[@]}"; do
+    if [[ -f "$conda_sh" ]]; then
+        source "$conda_sh"
+        CONDA_INITIALIZED=true
+        break
+    fi
+done
+
+# Method 2: If conda command exists, use shell hook
+if [[ "$CONDA_INITIALIZED" != "true" ]] && command -v conda &> /dev/null; then
+    eval "$(conda shell.bash hook)" 2>/dev/null || true
+    CONDA_INITIALIZED=true
 fi
 
-# Try to activate the snakemake environment
-conda activate snakemake_env 2>/dev/null || conda activate base || true
+# Activate the snakemake environment
+SNAKEMAKE_ENV="${SNAKEMAKE_CONDA_ENV:-snakemake_env}"
+if [[ "$CONDA_INITIALIZED" == "true" ]]; then
+    conda activate "$SNAKEMAKE_ENV" 2>/dev/null || \
+    conda activate /data/stat-cadd/reub0582/snakemake_env 2>/dev/null || \
+    conda activate base 2>/dev/null || true
+fi
 
 echo "Python: $(which python)"
 echo "Conda env: ${CONDA_DEFAULT_ENV:-none}"
