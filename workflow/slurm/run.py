@@ -163,6 +163,40 @@ def run_orchestrator(
     print(f"Stage: {stage}")
     print(f"{'='*60}")
 
+    # Special handling for manifest stage - it creates the manifest
+    if stage == 'manifest':
+        if manifest_path.exists():
+            print(f"Manifest already exists: {manifest_path}")
+            print("To recreate, delete the existing manifest first.")
+            return True
+
+        print("Creating manifest...")
+        # Run create_manifest directly (not as array job)
+        import subprocess
+        cmd = [
+            'python', 'workflow/scripts/create_manifest.py',
+            '--config', str(config_path),
+            '--targets', str(project_root / config.get('targets_config', 'config/targets.yaml')),
+            '--output', str(manifest_path),
+            '--project-root', str(project_root),
+            '--overwrite',
+        ]
+        result = subprocess.run(cmd, cwd=str(project_root))
+        if result.returncode == 0:
+            print(f"\n{'='*60}")
+            print("Manifest created successfully!")
+            print(f"{'='*60}\n")
+            return True
+        else:
+            print("ERROR: Manifest creation failed", file=sys.stderr)
+            return False
+
+    # For all other stages, check manifest exists
+    if not manifest_path.exists():
+        print(f"ERROR: Manifest not found: {manifest_path}", file=sys.stderr)
+        print("Run 'python -m workflow.slurm.run --stage manifest' first.", file=sys.stderr)
+        return False
+
     progress = get_stage_progress(manifest_path, stage)
     print(f"Progress: {progress['completed']}/{progress['total']} ({progress['percent']:.1f}%)")
     print(f"Pending: {progress['pending']} items")
