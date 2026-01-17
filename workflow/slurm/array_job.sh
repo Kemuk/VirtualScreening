@@ -37,6 +37,10 @@ echo "Node: $(hostname)"
 echo "Time: $(date)"
 echo "========================================"
 
+# Load required modules
+module load Anaconda3 || true
+module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
+
 # Initialize conda - try multiple methods
 # Method 1: Use conda.sh from common locations
 CONDA_PATHS=(
