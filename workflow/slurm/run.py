@@ -94,10 +94,23 @@ STAGES = {
 
 # Devel mode overrides
 DEVEL_CONFIG = {
-    'max_items': 15,
-    'time': 1,  # 1 minute
+    'max_items': 10000,
+    'time': 1,  # 1 minute (SLURM minimum; actual task timeout ~5s via job)
     'partition': 'devel',
 }
+
+# Stage execution order for 'all' mode
+STAGE_ORDER = [
+    'manifest',
+    'receptors',
+    'ligands',
+    'docking',
+    'conversion',
+    'aev_prep',
+    'aev_infer',
+    'aev_merge',
+    'results',
+]
 
 
 def load_config(config_path: Path) -> dict:
@@ -329,17 +342,66 @@ def run_worker(
     return True
 
 
+def run_all_stages(
+    config_path: Path,
+    devel: bool = False,
+    max_items: Optional[int] = None,
+    time_limit: Optional[int] = None,
+) -> bool:
+    """
+    Run all pipeline stages sequentially.
+
+    Args:
+        config_path: Path to config.yaml
+        devel: Use devel mode settings
+        max_items: Override max items
+        time_limit: Override time limit (minutes)
+
+    Returns:
+        True if all stages successful
+    """
+    print("\n" + "=" * 60)
+    print("VIRTUAL SCREENING PIPELINE - ALL STAGES")
+    print("=" * 60)
+    print(f"Devel mode: {devel}")
+    print(f"Stages: {' -> '.join(STAGE_ORDER)}")
+    print("=" * 60 + "\n")
+
+    for stage in STAGE_ORDER:
+        print(f"\n>>> Starting stage: {stage}")
+        success = run_orchestrator(
+            stage=stage,
+            config_path=config_path,
+            devel=devel,
+            max_items=max_items,
+            time_limit=time_limit,
+        )
+
+        if not success:
+            print(f"\nERROR: Stage '{stage}' failed. Stopping pipeline.", file=sys.stderr)
+            return False
+
+    print("\n" + "=" * 60)
+    print("ALL STAGES COMPLETE!")
+    print("=" * 60 + "\n")
+
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="SLURM Array Job Orchestrator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run docking stage
+  # Run all stages
+  python -m workflow.slurm.run --stage all
+
+  # Run single stage
   python -m workflow.slurm.run --stage docking
 
-  # Devel mode (15 items, 1 minute)
-  python -m workflow.slurm.run --stage docking --devel
+  # Devel mode (10k items, quick timeout)
+  python -m workflow.slurm.run --stage all --devel
 
   # Custom limits
   python -m workflow.slurm.run --stage docking --max-items 100 --time 5
@@ -353,8 +415,8 @@ Examples:
         '--stage',
         type=str,
         required=True,
-        choices=list(STAGES.keys()),
-        help='Pipeline stage to run',
+        choices=list(STAGES.keys()) + ['all'],
+        help='Pipeline stage to run (or "all" for full pipeline)',
     )
     parser.add_argument(
         '--config',
@@ -365,7 +427,7 @@ Examples:
     parser.add_argument(
         '--devel',
         action='store_true',
-        help='Use devel mode (15 items, 1 minute, devel partition)',
+        help='Use devel mode (10k items, quick timeout, devel partition)',
     )
     parser.add_argument(
         '--max-items',
@@ -419,13 +481,21 @@ Examples:
             config_path=args.config,
         )
     else:
-        success = run_orchestrator(
-            stage=args.stage,
-            config_path=args.config,
-            devel=args.devel,
-            max_items=args.max_items,
-            time_limit=args.time,
-        )
+        if args.stage == 'all':
+            success = run_all_stages(
+                config_path=args.config,
+                devel=args.devel,
+                max_items=args.max_items,
+                time_limit=args.time,
+            )
+        else:
+            success = run_orchestrator(
+                stage=args.stage,
+                config_path=args.config,
+                devel=args.devel,
+                max_items=args.max_items,
+                time_limit=args.time,
+            )
 
     sys.exit(0 if success else 1)
 
