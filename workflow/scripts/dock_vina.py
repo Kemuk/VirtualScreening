@@ -119,14 +119,6 @@ def run_vina_docking(
     else:
         raise ValueError(f"Unknown mode: {mode}. Expected 'gpu' or 'cpu'.")
 
-    # Prepare environment with vina directory in LD_LIBRARY_PATH
-    env = os.environ.copy()
-    ld_library_path = env.get('LD_LIBRARY_PATH', '')
-    if ld_library_path:
-        env['LD_LIBRARY_PATH'] = f"{vina_dir}:{ld_library_path}"
-    else:
-        env['LD_LIBRARY_PATH'] = str(vina_dir)
-
     # Run docking with progress bar
     try:
         if show_progress:
@@ -137,7 +129,6 @@ def run_vina_docking(
                 result = subprocess.Popen(
                     cmd,
                     cwd=str(vina_dir),
-                    env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -167,7 +158,6 @@ def run_vina_docking(
             result = subprocess.run(
                 cmd,
                 cwd=str(vina_dir),
-                env=env,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -179,7 +169,7 @@ def run_vina_docking(
         with open(log_file_abs, 'w') as f:
             f.write(f"Command: {' '.join(cmd)}\n")
             f.write(f"Working directory: {vina_dir}\n")
-            f.write(f"LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}\n")
+            f.write(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', '')}\n")
             f.write(f"\nStdout:\n{stdout}\n")
             if stderr:
                 f.write(f"\nStderr:\n{stderr}\n")
@@ -198,7 +188,7 @@ def run_vina_docking(
         print(f"ERROR: Vina docking failed", file=sys.stderr)
         print(f"Command: {' '.join(cmd)}", file=sys.stderr)
         print(f"Working directory: {vina_dir}", file=sys.stderr)
-        print(f"LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}", file=sys.stderr)
+        print(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', '')}", file=sys.stderr)
         print(f"Exit code: {e.returncode}", file=sys.stderr)
         print(f"Stdout: {e.stdout}", file=sys.stderr)
         print(f"Stderr: {e.stderr}", file=sys.stderr)
@@ -207,7 +197,7 @@ def run_vina_docking(
         with open(log_file_abs, 'w') as f:
             f.write(f"Command: {' '.join(cmd)}\n")
             f.write(f"Working directory: {vina_dir}\n")
-            f.write(f"LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}\n")
+            f.write(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', '')}\n")
             f.write(f"\nERROR: Exit code {e.returncode}\n")
             f.write(f"\nStdout:\n{e.stdout}\n")
             f.write(f"\nStderr:\n{e.stderr}\n")
