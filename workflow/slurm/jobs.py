@@ -56,7 +56,7 @@ def create_chunks(
     Args:
         items: DataFrame of items to process
         chunk_dir: Directory to write chunk files
-        stage: Stage name (for subdirectory)
+        stage: Stage name (retained for interface consistency)
         partition: Queue profile key (determines max array size)
 
     Returns:
@@ -73,11 +73,10 @@ def create_chunks(
     chunk_size = (n_items + n_chunks - 1) // n_chunks  # Ceiling division
 
     # Create chunk directory
-    stage_chunk_dir = chunk_dir / stage
-    stage_chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
 
     # Clear old chunk files
-    for old_file in stage_chunk_dir.glob('chunk_*.json'):
+    for old_file in chunk_dir.glob('chunk_*.json'):
         old_file.unlink()
 
     # Write chunk files
@@ -86,7 +85,7 @@ def create_chunks(
 
     for i in range(0, n_items, chunk_size):
         chunk_records = records[i:i + chunk_size]
-        chunk_file = stage_chunk_dir / f'chunk_{chunk_id:05d}.json'
+        chunk_file = chunk_dir / f'chunk_{chunk_id:05d}.json'
 
         with open(chunk_file, 'w') as f:
             json.dump(chunk_records, f, indent=2, default=str)
@@ -102,13 +101,13 @@ def read_chunk(chunk_dir: Path, stage: str, chunk_id: int) -> list:
 
     Args:
         chunk_dir: Base chunk directory
-        stage: Stage name
+        stage: Stage name (retained for interface consistency)
         chunk_id: Chunk index (from SLURM_ARRAY_TASK_ID)
 
     Returns:
         List of item records
     """
-    chunk_file = chunk_dir / stage / f'chunk_{chunk_id:05d}.json'
+    chunk_file = chunk_dir / f'chunk_{chunk_id:05d}.json'
 
     if not chunk_file.exists():
         raise FileNotFoundError(f"Chunk file not found: {chunk_file}")
@@ -380,9 +379,8 @@ def cleanup_stage_files(
         stage: Stage name
     """
     # Remove chunk files
-    stage_chunks = chunk_dir / stage
-    if stage_chunks.exists():
-        for f in stage_chunks.glob('chunk_*.json'):
+    if chunk_dir.exists():
+        for f in chunk_dir.glob('chunk_*.json'):
             f.unlink()
 
     # Remove result files
