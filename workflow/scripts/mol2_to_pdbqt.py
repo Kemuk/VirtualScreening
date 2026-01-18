@@ -13,6 +13,7 @@ Output:
 """
 
 import argparse
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -38,14 +39,17 @@ def convert_mol2_to_pdbqt(
     Returns:
         True if successful, False otherwise
     """
+    mol2_path = mol2_path.expanduser().resolve()
+    pdbqt_path = pdbqt_path.expanduser().resolve()
     pdbqt_path.parent.mkdir(parents=True, exist_ok=True)
+    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
 
     # OpenBabel command for MOL2 → PDBQT conversion (RIGID receptor)
     # -xr: Make receptor rigid (no TORSDOF/BRANCH records)
     # -p: Add hydrogens at pH
     # --partialcharge: Calculate partial charges
     cmd = [
-        "obabel",
+        obabel_bin,
         str(mol2_path),
         "-O", str(pdbqt_path),
         "-xr",  # Rigid receptor flag - critical for Vina!
@@ -89,10 +93,13 @@ def convert_mol2_to_pdb(
     Returns:
         True if successful, False otherwise
     """
+    mol2_path = mol2_path.expanduser().resolve()
+    pdb_path = pdb_path.expanduser().resolve()
     pdb_path.parent.mkdir(parents=True, exist_ok=True)
+    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
 
     cmd = [
-        "obabel",
+        obabel_bin,
         str(mol2_path),
         "-O", str(pdb_path),
     ]
@@ -118,6 +125,111 @@ def convert_mol2_to_pdb(
         print("ERROR: obabel not found. Install OpenBabel.", file=sys.stderr)
         return False
 
+
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of receptor conversions.
+
+    Called by the SLURM worker to process a chunk of items.
+    For receptors, each item represents a unique protein target.
+
+    Args:
+        items: List of item records from manifest (dicts with protein info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'error'
+    """
+    import yaml
+
+    results = []
+    prep_config = config.get('preparation', {})
+    ph = prep_config.get('ph', 7.4)
+    partial_charge = prep_config.get('partial_charge', 'gasteiger')
+
+    # Load targets config for receptor paths
+    targets_path = Path(config.get('targets_config', 'config/targets.yaml'))
+    with open(targets_path) as f:
+        targets_config = yaml.safe_load(f)
+
+    # Track which proteins we've already processed
+    processed_proteins = set()
+
+    for item in items:
+        ligand_id = item['ligand_id']
+        protein_id = item['protein_id']
+
+        # Skip if already processed this protein
+        if protein_id in processed_proteins:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': True,
+                'skipped': True,
+            })
+            continue
+
+        processed_proteins.add(protein_id)
+
+        try:
+            # Get receptor paths from targets config
+            target_cfg = targets_config['targets'].get(protein_id)
+            if not target_cfg:
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': f'Target {protein_id} not found in targets.yaml',
+                })
+                continue
+
+            mol2_path = Path(target_cfg['receptor_mol2'])
+            pdbqt_path = Path(item['receptor_pdbqt_path'])
+            pdb_path = Path(item['receptor_pdb_path'])
+
+            # Skip if already converted
+            if pdbqt_path.exists() and pdb_path.exists():
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': True,
+                    'skipped': True,
+                })
+                continue
+
+            # Convert to PDBQT
+            success_pdbqt = convert_mol2_to_pdbqt(
+                mol2_path=mol2_path,
+                pdbqt_path=pdbqt_path,
+                ph=ph,
+                partial_charge=partial_charge,
+            )
+
+            # Convert to PDB
+            success_pdb = convert_mol2_to_pdb(
+                mol2_path=mol2_path,
+                pdb_path=pdb_path,
+            )
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': success_pdbqt and success_pdb,
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

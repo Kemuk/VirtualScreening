@@ -1,0 +1,220 @@
+"""
+Snakefile_slurm - Virtual Screening Pipeline (SLURM Array Jobs)
+
+Simplified Snakefile that uses the SLURM orchestrator for parallel execution.
+Each stage is a single rule that submits SLURM array jobs.
+
+Usage:
+    # Production run
+    snakemake -s workflow/Snakefile_slurm --cores 1
+
+    # Devel mode (15 items, 1 minute)
+    snakemake -s workflow/Snakefile_slurm --cores 1 --config devel=true
+
+    # Dry-run
+    snakemake -s workflow/Snakefile_slurm -n
+"""
+
+import sys
+from pathlib import Path
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+configfile: "config/config.yaml"
+workdir: str(Path(workflow.basedir).parent)
+
+# Devel mode flag
+DEVEL = config.get('devel', False)
+DEVEL_FLAG = "--devel" if DEVEL else ""
+
+# Paths
+MANIFEST_PATH = Path(config['manifest_dir']) / 'manifest.parquet'
+LOGS_DIR = Path("data/slurm/logs")
+
+
+# =============================================================================
+# Main Target
+# =============================================================================
+
+rule all:
+    """Complete the full pipeline using SLURM array jobs."""
+    input:
+        "data/slurm/logs/results.done"
+    message:
+        "Virtual screening pipeline complete!"
+
+
+# =============================================================================
+# Stage Rules
+# =============================================================================
+
+rule stage_manifest:
+    """Generate master manifest from targets.yaml."""
+    output:
+        touch("data/slurm/logs/manifest.done")
+    log:
+        "data/slurm/logs/manifest.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage manifest {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_receptors:
+    """Prepare receptor PDBQT files for each target."""
+    input:
+        "data/slurm/logs/manifest.done"
+    output:
+        touch("data/slurm/logs/receptors.done")
+    log:
+        "data/slurm/logs/receptors.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage receptors {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_ligands:
+    """Prepare ligand PDBQT files from SMILES."""
+    input:
+        "data/slurm/logs/receptors.done"
+    output:
+        touch("data/slurm/logs/ligands.done")
+    log:
+        "data/slurm/logs/ligands.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage ligands {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_docking:
+    """Dock all ligands to their target receptors."""
+    input:
+        "data/slurm/logs/ligands.done"
+    output:
+        touch("data/slurm/logs/docking.done")
+    log:
+        "data/slurm/logs/docking.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage docking {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_conversion:
+    """Convert docked PDBQT files to SDF format."""
+    input:
+        "data/slurm/logs/docking.done"
+    output:
+        touch("data/slurm/logs/conversion.done")
+    log:
+        "data/slurm/logs/conversion.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage conversion {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_aev_prep:
+    """Prepare data for AEV-PLIG rescoring."""
+    input:
+        "data/slurm/logs/conversion.done"
+    output:
+        touch("data/slurm/logs/aev_prep.done")
+    log:
+        "data/slurm/logs/aev_prep.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage aev_prep {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_aev_infer:
+    """Run AEV-PLIG neural network rescoring."""
+    input:
+        "data/slurm/logs/aev_prep.done"
+    output:
+        touch("data/slurm/logs/aev_infer.done")
+    log:
+        "data/slurm/logs/aev_infer.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage aev_infer {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_aev_merge:
+    """Merge AEV-PLIG predictions and update manifest."""
+    input:
+        "data/slurm/logs/aev_infer.done"
+    output:
+        touch("data/slurm/logs/aev_merge.done")
+    log:
+        "data/slurm/logs/aev_merge.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage aev_merge {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+rule stage_results:
+    """Compute metrics and generate plots."""
+    input:
+        "data/slurm/logs/aev_merge.done"
+    output:
+        touch("data/slurm/logs/results.done")
+    log:
+        "data/slurm/logs/results.log"
+    shell:
+        """
+        python -m workflow.slurm.run --stage results {DEVEL_FLAG} 2>&1 | tee {log}
+        """
+
+
+# =============================================================================
+# Utility Rules
+# =============================================================================
+
+rule clean_slurm_logs:
+    """Remove SLURM orchestrator logs."""
+    shell:
+        "rm -rf data/slurm/logs/*.done data/slurm/logs/*.log"
+
+
+rule clean_slurm_all:
+    """Remove all SLURM orchestrator files."""
+    shell:
+        "rm -rf data/slurm/"
+
+
+rule status:
+    """Show pipeline status from manifest."""
+    run:
+        from workflow.slurm.manifest import get_stage_progress, load_manifest
+
+        manifest_path = Path(config['manifest_dir']) / 'manifest.parquet'
+        if not manifest_path.exists():
+            print("Manifest not found. Run stage_manifest first.")
+            return
+
+        print("\nPipeline Status")
+        print("=" * 60)
+
+        stages = ['receptors', 'ligands', 'docking', 'conversion',
+                  'aev_prep', 'aev_infer', 'aev_merge', 'results']
+
+        for stage in stages:
+            try:
+                progress = get_stage_progress(manifest_path, stage)
+                bar_len = 30
+                filled = int(bar_len * progress['percent'] / 100)
+                bar = '█' * filled + '░' * (bar_len - filled)
+                print(f"{stage:15} [{bar}] {progress['percent']:5.1f}% "
+                      f"({progress['completed']}/{progress['total']})")
+            except Exception as e:
+                print(f"{stage:15} [{'░' * 30}]   N/A")
+
+        print("=" * 60)

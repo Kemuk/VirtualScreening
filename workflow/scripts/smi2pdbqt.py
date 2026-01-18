@@ -6,6 +6,7 @@ Convert SMILES to PDBQT format using OpenBabel directly.
 """
 
 import argparse
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -29,10 +30,12 @@ def smiles_to_pdbqt(
     Returns:
         True if successful
     """
+    pdbqt_path = pdbqt_path.expanduser().resolve()
     pdbqt_path.parent.mkdir(parents=True, exist_ok=True)
+    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
 
     cmd = [
-        "obabel",
+        obabel_bin,
         f"-:{smiles}",
         "-opdbqt",
         "--gen3d",

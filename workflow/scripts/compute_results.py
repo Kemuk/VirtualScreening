@@ -424,5 +424,97 @@ def main():
     sys.exit(0)
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of items for results computation.
+
+    Called by the SLURM worker to process a chunk of items.
+    For results computation, this is typically done per-target.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'data'
+    """
+    results = []
+
+    # Group items by protein_id for per-target computation
+    from collections import defaultdict
+    by_target = defaultdict(list)
+    for item in items:
+        by_target[item['protein_id']].append(item)
+
+    fracs = config.get('results', {}).get('enrichment_fractions', [0.01, 0.05, 0.10])
+    bedroc_alpha = config.get('results', {}).get('bedroc_alpha', 20.0)
+
+    for protein_id, target_items in by_target.items():
+        ligand_id = target_items[0]['ligand_id']  # Use first ligand as reference
+
+        try:
+            # Convert items to DataFrame for metric computation
+            target_df = pd.DataFrame(target_items)
+
+            # Check if we have enough data
+            if len(target_df) < 2:
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': f'Insufficient data for target {protein_id}',
+                })
+                continue
+
+            # Prepare columns
+            target_df['Vina'] = target_df['vina_score']
+            target_df['AEV-PLIG'] = target_df.get('aev_plig_best_score')
+
+            # Compute metrics for this target
+            metrics = {}
+            for method, higher_is_better in [('Vina', False), ('AEV-PLIG', True)]:
+                if method not in target_df.columns:
+                    continue
+                valid = target_df[target_df[method].notna()]
+                if len(valid) < 2:
+                    continue
+
+                try:
+                    method_metrics = compute_metrics_for_target(
+                        valid,
+                        method_col=method,
+                        label_col='is_active',
+                        higher_is_better=higher_is_better,
+                        fracs=fracs,
+                        bedroc_alpha=bedroc_alpha,
+                    )
+                    metrics[method] = method_metrics
+                except Exception as e:
+                    print(f"WARNING: Failed to compute {method} metrics for {protein_id}: {e}")
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': True,
+                'data': {
+                    'protein_id': protein_id,
+                    'n_compounds': len(target_df),
+                    'n_actives': int(target_df['is_active'].sum()),
+                    'metrics': metrics,
+                },
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
 if __name__ == '__main__':
     main()

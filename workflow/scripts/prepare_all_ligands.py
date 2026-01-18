@@ -206,6 +206,71 @@ def prepare_all_ligands(
     }
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of ligand preparations.
+
+    Called by the SLURM worker to process a chunk of items.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'error'
+    """
+    results = []
+    prep_config = config.get('preparation', {})
+    ph = prep_config.get('ph', 7.4)
+    partial_charge = prep_config.get('partial_charge', 'gasteiger')
+
+    for item in items:
+        ligand_id = item['ligand_id']
+
+        try:
+            pdbqt_path = Path(item['ligand_pdbqt_path'])
+            smiles = item['smiles_input']
+
+            # Skip if already prepared
+            if pdbqt_path.exists():
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': True,
+                    'skipped': True,
+                })
+                continue
+
+            # Run preparation
+            success = smiles_to_pdbqt(
+                smiles=smiles,
+                pdbqt_path=pdbqt_path,
+                ph=ph,
+                partial_charge=partial_charge,
+            )
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': success,
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Batch preparation of ligands (SMILES → PDBQT)"

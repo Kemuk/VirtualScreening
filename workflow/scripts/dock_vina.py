@@ -244,6 +244,103 @@ def extract_best_score(vina_output: str) -> float:
     return None
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of docking jobs.
+
+    Called by the SLURM worker to process a chunk of items.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'score', 'error'
+    """
+    import yaml
+    from pathlib import Path
+
+    results = []
+    docking_config = config.get('docking', {})
+    tools = config.get('tools', {})
+
+    # Determine vina binary based on mode
+    mode = docking_config.get('mode', 'cpu')
+    if mode == 'gpu':
+        vina_bin = tools.get('vina_gpu', 'vina')
+    else:
+        vina_bin = tools.get('vina_cpu', 'vina')
+
+    # Load targets config for box parameters
+    targets_path = Path(config.get('targets_config', 'config/targets.yaml'))
+    with open(targets_path) as f:
+        targets_config = yaml.safe_load(f)
+
+    for item in items:
+        ligand_id = item['ligand_id']
+        protein_id = item['protein_id']
+
+        try:
+            # Get paths from manifest item
+            ligand_path = Path(item['ligand_pdbqt_path'])
+            receptor_path = Path(item['receptor_pdbqt_path'])
+            output_path = Path(item['docked_pdbqt_path'])
+
+            # Get box parameters from targets config
+            target_cfg = targets_config['targets'][protein_id]
+            box_center = target_cfg['box_center']
+            box_size = target_cfg.get('box_size', config.get('default_box_size', {}))
+
+            # Run docking
+            success = run_vina_docking(
+                receptor=receptor_path,
+                ligand=ligand_path,
+                output=output_path,
+                center_x=box_center['x'],
+                center_y=box_center['y'],
+                center_z=box_center['z'],
+                size_x=box_size.get('x', 25.0),
+                size_y=box_size.get('y', 25.0),
+                size_z=box_size.get('z', 25.0),
+                vina_bin=vina_bin,
+                exhaustiveness=docking_config.get('exhaustiveness', 8),
+                num_modes=docking_config.get('num_modes', 9),
+                energy_range=docking_config.get('energy_range', 3),
+                seed=docking_config.get('seed', 42),
+                mode=mode,
+            )
+
+            # Extract score from output if successful
+            score = None
+            if success and output_path.exists():
+                with open(output_path) as f:
+                    content = f.read()
+                    score = extract_best_score(content)
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': success,
+                'score': score,
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Perform molecular docking using AutoDock Vina"

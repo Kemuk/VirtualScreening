@@ -138,6 +138,69 @@ def update_manifest_with_predictions(
     return updated_count
 
 
+# =============================================================================
+# Batch Processing (for SLURM array jobs)
+# =============================================================================
+
+def process_batch(items: list, config: dict) -> list:
+    """
+    Process a batch of ligands for manifest update with AEV-PLIG results.
+
+    Called by the SLURM worker to process a chunk of items.
+    This stage reads the AEV-PLIG prediction results and prepares
+    the data to be merged back into the manifest.
+
+    Args:
+        items: List of item records from manifest (dicts with ligand info)
+        config: Workflow configuration dict
+
+    Returns:
+        List of result records with 'ligand_id', 'success', 'data'
+    """
+    results = []
+
+    for item in items:
+        ligand_id = item['ligand_id']
+
+        try:
+            # Check if rescoring is complete
+            if item.get('rescoring_status'):
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': True,
+                    'skipped': True,
+                })
+                continue
+
+            # Compute pK from Vina score if available
+            vina_score = item.get('vina_score')
+            pK = None
+            if vina_score is not None and not pd.isna(vina_score):
+                pK = vina_score_to_pK(vina_score)
+
+            results.append({
+                'ligand_id': ligand_id,
+                'success': True,
+                'data': {
+                    'compound_key': item['compound_key'],
+                    'binding_affinity_pK': pK,
+                },
+            })
+
+        except Exception as e:
+            results.append({
+                'ligand_id': ligand_id,
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description="Update manifest with AEV-PLIG predictions"
