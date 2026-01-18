@@ -179,12 +179,12 @@ def run_orchestrator(
         stage_config['time'] = time_limit
 
     # Paths
-    project_root = config_path.parent.parent
-    manifest_path = project_root / config['manifest_dir'] / 'manifest.parquet'
-    chunk_dir = project_root / 'data' / 'slurm' / 'chunks'
-    results_dir = project_root / 'data' / 'slurm' / 'results'
-    logs_dir = project_root / 'data' / 'slurm' / 'logs'
-    script_path = project_root / 'workflow' / 'slurm' / 'array_job.sh'
+    project_root = config_path.parent.parent.resolve()
+    manifest_path = (project_root / config['manifest_dir'] / 'manifest.parquet').resolve()
+    chunk_dir = (project_root / 'data' / 'slurm' / 'chunks').resolve()
+    results_dir = (project_root / 'data' / 'slurm' / 'results').resolve()
+    logs_dir = (project_root / 'data' / 'slurm' / 'logs').resolve()
+    script_path = (project_root / 'workflow' / 'slurm' / 'array_job.sh').resolve()
 
     # Show progress
     print(f"\n{'='*60}")
@@ -327,6 +327,11 @@ def run_worker(
         return False
 
     stage_config = STAGES[stage]
+
+    chunk_dir = chunk_dir.resolve()
+    results_dir = results_dir.resolve()
+    if config_path:
+        config_path = config_path.resolve()
 
     # Load config if provided
     config = load_config(config_path) if config_path else {}

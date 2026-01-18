@@ -13,6 +13,7 @@ Output:
 """
 
 import argparse
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -38,14 +39,17 @@ def convert_mol2_to_pdbqt(
     Returns:
         True if successful, False otherwise
     """
+    mol2_path = mol2_path.expanduser().resolve()
+    pdbqt_path = pdbqt_path.expanduser().resolve()
     pdbqt_path.parent.mkdir(parents=True, exist_ok=True)
+    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
 
     # OpenBabel command for MOL2 → PDBQT conversion (RIGID receptor)
     # -xr: Make receptor rigid (no TORSDOF/BRANCH records)
     # -p: Add hydrogens at pH
     # --partialcharge: Calculate partial charges
     cmd = [
-        "obabel",
+        obabel_bin,
         str(mol2_path),
         "-O", str(pdbqt_path),
         "-xr",  # Rigid receptor flag - critical for Vina!
@@ -89,10 +93,13 @@ def convert_mol2_to_pdb(
     Returns:
         True if successful, False otherwise
     """
+    mol2_path = mol2_path.expanduser().resolve()
+    pdb_path = pdb_path.expanduser().resolve()
     pdb_path.parent.mkdir(parents=True, exist_ok=True)
+    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
 
     cmd = [
-        "obabel",
+        obabel_bin,
         str(mol2_path),
         "-O", str(pdb_path),
     ]

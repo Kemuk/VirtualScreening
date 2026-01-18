@@ -151,6 +151,13 @@ def submit_array(
     Returns:
         SLURM job ID
     """
+    script_path = script_path.resolve()
+    chunk_dir = chunk_dir.resolve()
+    results_dir = results_dir.resolve()
+    logs_dir = logs_dir.resolve()
+    if config_path:
+        config_path = config_path.resolve()
+
     # Create log directory
     stage_logs = logs_dir / stage
     stage_logs.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,7 @@ Default behavior: Extract the first model (best scoring pose).
 """
 
 import argparse
+import os
 import sys
 import subprocess
 import tempfile
@@ -83,6 +84,10 @@ def pdbqt_to_sdf(
         True if successful, False otherwise
     """
     # Extract the specified model
+    pdbqt_path = pdbqt_path.expanduser().resolve()
+    sdf_path = sdf_path.expanduser().resolve()
+    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
+
     try:
         model_content = extract_model_from_pdbqt(pdbqt_path, model_index)
     except Exception as e:
@@ -103,7 +108,7 @@ def pdbqt_to_sdf(
         sdf_path.parent.mkdir(parents=True, exist_ok=True)
 
         cmd = [
-            "obabel",
+            obabel_bin,
             str(tmp_pdbqt),
             "-O", str(sdf_path),
             "-h",  # Add hydrogens

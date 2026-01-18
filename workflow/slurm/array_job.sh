@@ -52,6 +52,19 @@ SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_e
 source activate "$SNAKEMAKE_PREFIX"
 export PYTHONNOUSERSITE=1
 
+OBABEL_BIN="${SNAKEMAKE_PREFIX}/bin/obabel"
+export OBABEL_BIN
+BABEL_LIBDIR="${SNAKEMAKE_PREFIX}/lib/openbabel"
+if [[ -d "${BABEL_LIBDIR}/3.1.1" ]]; then
+    BABEL_LIBDIR="${BABEL_LIBDIR}/3.1.1"
+fi
+export BABEL_LIBDIR
+BABEL_DATADIR="${SNAKEMAKE_PREFIX}/share/openbabel"
+if [[ -d "${BABEL_DATADIR}/3.1.1" ]]; then
+    BABEL_DATADIR="${BABEL_DATADIR}/3.1.1"
+fi
+export BABEL_DATADIR
+
 PYTHON_BIN="${SNAKEMAKE_PREFIX}/bin/python"
 echo "Python: ${PYTHON_BIN}"
 echo "Conda env: ${CONDA_DEFAULT_ENV:-none}"
