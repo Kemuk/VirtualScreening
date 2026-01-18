@@ -41,8 +41,11 @@ echo "========================================"
 
 # Load required modules (ARC guidance: load Anaconda, then activate)
 module purge || true
+module load Boost/1.77.0-GCC-11.2.0 || true
+module load Python/3.9.6-GCCcore-11.2.0 || true
+module load CUDA/12.0.0 || true
+module load OpenMPI/4.1.1-GCC-11.2.0 || true
 module load Anaconda3 || true
-module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
 
 # Activate the conda environment from an absolute prefix
 SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_env}"
