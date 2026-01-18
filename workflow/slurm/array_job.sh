@@ -39,21 +39,20 @@ echo "Node: $(hostname)"
 echo "Time: $(date)"
 echo "========================================"
 
-# Load required modules (ARC guidance: load Anaconda, then activate)
+# Load required modules (match submit_gpu.slurm)
 module purge || true
-module load Boost/1.77.0-GCC-11.2.0 || true
-module load Python/3.9.6-GCCcore-11.2.0 || true
-module load CUDA/12.0.0 || true
-module load OpenMPI/4.1.1-GCC-11.2.0 || true
 module load Anaconda3 || true
+module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
 
-# Activate the conda environment from an absolute prefix
-SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-/data/stat-cadd/reub0582/snakemake_env}"
+# ensure we start in the submit directory
+cd "${SLURM_SUBMIT_DIR:-.}"
 
-# ARC guidance: prefer "source activate" in batch scripts
-# shellcheck source=/dev/null
-source activate "$SNAKEMAKE_PREFIX"
+# Activate the conda environment (match submit_gpu.slurm)
+SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-${SLURM_SUBMIT_DIR:-.}/../snakemake_env}"
+SNAKEMAKE_PREFIX="$(cd "${SNAKEMAKE_PREFIX}" && pwd)"
+conda activate "${SNAKEMAKE_PREFIX}"
 export PYTHONNOUSERSITE=1
+export PYTHONUNBUFFERED=1
 
 OBABEL_BIN="${SNAKEMAKE_PREFIX}/bin/obabel"
 export OBABEL_BIN
