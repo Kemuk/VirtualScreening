@@ -35,7 +35,7 @@ PARTITION_CONFIG = {
     },
     'devel': {
         'max_array_size': 100,
-        'default_time': 1,       # 1 minute for devel
+        'default_time': 10,      # 10 minutes (devel cap)
         'default_mem': '4G',
     },
 }
@@ -121,7 +121,7 @@ def submit_array(
     n_chunks: int,
     cluster: Optional[str],
     partition: Optional[str],
-    time_minutes: int,
+    time_minutes: Optional[int],
     mem: str,
     script_path: Path,
     chunk_dir: Path,
@@ -139,7 +139,7 @@ def submit_array(
         n_chunks: Number of array tasks
         cluster: SLURM cluster name (e.g., arc, htc)
         partition: SLURM partition (e.g., devel)
-        time_minutes: Time limit in minutes
+        time_minutes: Time limit in minutes (None = partition default)
         mem: Memory allocation (e.g., '8G')
         script_path: Path to array_job.sh
         chunk_dir: Directory containing chunk files
@@ -167,21 +167,22 @@ def submit_array(
     stage_results = results_dir / stage
     stage_results.mkdir(parents=True, exist_ok=True)
 
-    # Format time as HH:MM:SS
-    hours = time_minutes // 60
-    mins = time_minutes % 60
-    time_str = f"{hours:02d}:{mins:02d}:00"
-
     # Build sbatch command
     cmd = [
         'sbatch',
         f'--array=0-{n_chunks - 1}',
-        f'--time={time_str}',
         f'--mem={mem}',
         f'--job-name=vs-{stage}',
         f'--output={stage_logs}/slurm_%A_%a.out',
         f'--error={stage_logs}/slurm_%A_%a.err',
     ]
+
+    if time_minutes is not None:
+        # Format time as HH:MM:SS
+        hours = time_minutes // 60
+        mins = time_minutes % 60
+        time_str = f"{hours:02d}:{mins:02d}:00"
+        cmd.append(f'--time={time_str}')
 
     if cluster:
         cmd.append(f'--clusters={cluster}')

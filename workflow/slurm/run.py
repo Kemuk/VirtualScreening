@@ -15,7 +15,7 @@ Usage:
     # Worker mode (called by SLURM)
     python -m workflow.slurm.run --stage docking --worker --chunk-id 0
 
-    # Devel mode (15 items, 1 minute timeout)
+    # Devel mode (10k items, devel partition defaults)
     python -m workflow.slurm.run --stage docking --devel
 """
 
@@ -96,7 +96,6 @@ STAGES = {
 # Devel mode overrides
 DEVEL_CONFIG = {
     'max_items': 10000,
-    'time': 1,  # 1 minute (SLURM minimum; actual task timeout ~5s via job)
     'partition': 'devel',
 }
 
@@ -173,11 +172,12 @@ def run_orchestrator(
     partition = None
     if devel:
         max_items = max_items or DEVEL_CONFIG['max_items']
-        time_limit = time_limit or DEVEL_CONFIG['time']
         partition = DEVEL_CONFIG['partition']
 
-    if time_limit:
+    if time_limit is not None:
         stage_config['time'] = time_limit
+    elif devel:
+        stage_config.pop('time', None)
 
     # Paths
     project_root = config_path.parent.parent.resolve()
@@ -257,7 +257,7 @@ def run_orchestrator(
         n_chunks=n_chunks,
         cluster=cluster,
         partition=partition,
-        time_minutes=stage_config['time'],
+        time_minutes=stage_config.get('time'),
         mem=stage_config['mem'],
         script_path=script_path,
         chunk_dir=chunk_dir,
@@ -424,7 +424,7 @@ Examples:
   # Run single stage
   python -m workflow.slurm.run --stage docking
 
-  # Devel mode (10k items, quick timeout)
+  # Devel mode (10k items, devel partition defaults)
   python -m workflow.slurm.run --stage all --devel
 
   # Custom limits
@@ -451,7 +451,7 @@ Examples:
     parser.add_argument(
         '--devel',
         action='store_true',
-        help='Use devel mode (10k items, quick timeout, devel partition)',
+        help='Use devel mode (10k items, devel partition defaults)',
     )
     parser.add_argument(
         '--max-items',
@@ -461,7 +461,7 @@ Examples:
     parser.add_argument(
         '--time',
         type=int,
-        help='Time limit in minutes',
+        help='Time limit in minutes (omit for partition default)',
     )
 
     # Worker mode arguments

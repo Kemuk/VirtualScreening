@@ -8,7 +8,7 @@ Usage:
     # Production run
     snakemake -s workflow/Snakefile_slurm --cores 1
 
-    # Devel mode (15 items, 1 minute)
+    # Devel mode (15 items, devel partition defaults)
     snakemake -s workflow/Snakefile_slurm --cores 1 --config devel=true
 
     # Dry-run

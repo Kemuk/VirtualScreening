@@ -138,7 +138,7 @@ slurm:
       gres: "gpu:1"
     devel:
       max_array_size: 100
-      default_time: 1
+      default_time: 10
       default_mem: "4G"
 
   # Stage-specific overrides (optional)

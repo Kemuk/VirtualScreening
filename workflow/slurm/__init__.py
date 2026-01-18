@@ -11,7 +11,7 @@ Usage:
     # Worker mode (called by SLURM array tasks):
     python -m workflow.slurm.run --stage docking --worker --chunk-id $SLURM_ARRAY_TASK_ID
 
-    # Devel mode (small subset, short timeout):
+    # Devel mode (small subset, devel partition defaults):
     python -m workflow.slurm.run --stage docking --devel
 """
 
