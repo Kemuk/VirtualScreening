@@ -17,8 +17,6 @@ import sys
 import subprocess
 import os
 from pathlib import Path
-from tqdm import tqdm
-import time
 
 
 def run_vina_docking(
@@ -39,7 +37,6 @@ def run_vina_docking(
     threads: int = None,
     gpu_threads: int = 8000,
     mode: str = "cpu",
-    show_progress: bool = False,
 ) -> bool:
     """
     Run AutoDock Vina docking.
@@ -119,47 +116,17 @@ def run_vina_docking(
     else:
         raise ValueError(f"Unknown mode: {mode}. Expected 'gpu' or 'cpu'.")
 
-    # Run docking
-    if show_progress:
-        # Estimate docking time for progress bar (very rough)
-        estimated_time = exhaustiveness * 2  # seconds, rough estimate
-        with tqdm(total=100, desc=f"Docking {ligand.name}", unit="%", ncols=80) as pbar:
-            # Run in vina directory for shared library access
-            result = subprocess.Popen(
-                cmd,
-                cwd=str(vina_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-
-            # Update progress bar while process runs
-            start_time = time.time()
-            while result.poll() is None:
-                elapsed = time.time() - start_time
-                progress = min(99, int((elapsed / estimated_time) * 100))
-                pbar.n = progress
-                pbar.refresh()
-                time.sleep(0.5)
-
-            # Process finished
-            pbar.n = 100
-            pbar.refresh()
-
-            stdout, stderr = result.communicate()
-            returncode = result.returncode
-    else:
-        # Run without progress bar (use check=False like legacy)
-        result = subprocess.run(
-            cmd,
-            cwd=str(vina_dir),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        stdout = result.stdout
-        stderr = result.stderr
-        returncode = result.returncode
+    # Run docking (use check=False like legacy)
+    result = subprocess.run(
+        cmd,
+        cwd=str(vina_dir),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    stdout = result.stdout
+    stderr = result.stderr
+    returncode = result.returncode
 
     # Write log file
     with open(log_file_abs, 'w') as f:
@@ -341,9 +308,6 @@ def main():
     parser.add_argument("--threads", type=int, help="CPU threads (CPU mode only)")
     parser.add_argument("--gpu-threads", type=int, default=8000, help="GPU threads (GPU mode only)")
 
-    # Progress
-    parser.add_argument("--progress", action="store_true", help="Show progress bar during docking")
-
     args = parser.parse_args()
 
     # Validate inputs
@@ -383,7 +347,6 @@ def main():
         threads=args.threads,
         gpu_threads=args.gpu_threads,
         mode=args.mode,
-        show_progress=args.progress,
     )
 
     if success:
