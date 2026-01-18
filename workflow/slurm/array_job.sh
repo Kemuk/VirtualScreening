@@ -55,13 +55,23 @@ export PYTHONNOUSERSITE=1
 OBABEL_BIN="${SNAKEMAKE_PREFIX}/bin/obabel"
 export OBABEL_BIN
 BABEL_LIBDIR="${SNAKEMAKE_PREFIX}/lib/openbabel"
-if [[ -d "${BABEL_LIBDIR}/3.1.1" ]]; then
-    BABEL_LIBDIR="${BABEL_LIBDIR}/3.1.1"
+if [[ -d "${BABEL_LIBDIR}" ]]; then
+    for candidate in "${BABEL_LIBDIR}"/*; do
+        if [[ -d "${candidate}" ]]; then
+            BABEL_LIBDIR="${candidate}"
+            break
+        fi
+    done
 fi
 export BABEL_LIBDIR
 BABEL_DATADIR="${SNAKEMAKE_PREFIX}/share/openbabel"
-if [[ -d "${BABEL_DATADIR}/3.1.1" ]]; then
-    BABEL_DATADIR="${BABEL_DATADIR}/3.1.1"
+if [[ -d "${BABEL_DATADIR}" ]]; then
+    for candidate in "${BABEL_DATADIR}"/*; do
+        if [[ -d "${candidate}" ]]; then
+            BABEL_DATADIR="${candidate}"
+            break
+        fi
+    done
 fi
 export BABEL_DATADIR
 
