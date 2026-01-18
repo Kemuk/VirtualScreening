@@ -128,6 +128,7 @@ def submit_array(
     results_dir: Path,
     logs_dir: Path,
     gres: Optional[str] = None,
+    cpus: Optional[int] = None,
     config_path: Optional[Path] = None,
 ) -> str:
     """
@@ -145,6 +146,7 @@ def submit_array(
         results_dir: Directory for result files
         logs_dir: Directory for SLURM logs
         gres: GPU resources (e.g., 'gpu:1')
+        cpus: Number of CPUs per task
         config_path: Path to config.yaml
 
     Returns:
@@ -189,6 +191,9 @@ def submit_array(
 
     if gres:
         cmd.append(f'--gres={gres}')
+
+    if cpus:
+        cmd.append(f'--cpus-per-task={cpus}')
 
     # Add script and arguments
     cmd.extend([

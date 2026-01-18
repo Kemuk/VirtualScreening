@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-ulimit -s unlimited || true
+ulimit -s 8192 || true
 
 # Arguments
 STAGE="${1:?Stage name required}"

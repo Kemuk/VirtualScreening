@@ -57,7 +57,8 @@ STAGES = {
         'function': 'workflow.scripts.dock_vina.process_batch',
         'partition': 'arc',
         'time': 60,
-        'mem': '16G',
+        'mem': '20G',
+        'cpus': 8,
     },
     'conversion': {
         'function': 'workflow.scripts.pdbqt_to_sdf.process_batch',
@@ -263,6 +264,7 @@ def run_orchestrator(
         results_dir=results_dir,
         logs_dir=logs_dir,
         gres=stage_config.get('gres'),
+        cpus=stage_config.get('cpus'),
         config_path=config_path,
     )
 
