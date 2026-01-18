@@ -100,7 +100,6 @@ def run_vina_docking(
         "--size_x", str(size_x),
         "--size_y", str(size_y),
         "--size_z", str(size_z),
-        "--num_modes", str(num_modes),
         "--seed", str(seed),
     ]
 
