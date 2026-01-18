@@ -50,7 +50,7 @@ cd "${SLURM_SUBMIT_DIR:-.}"
 # Activate the conda environment (match submit_gpu.slurm)
 SNAKEMAKE_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-${SLURM_SUBMIT_DIR:-.}/../snakemake_env}"
 SNAKEMAKE_PREFIX="$(cd "${SNAKEMAKE_PREFIX}" && pwd)"
-conda activate "${SNAKEMAKE_PREFIX}"
+source activate "${SNAKEMAKE_PREFIX}"
 export PYTHONNOUSERSITE=1
 export PYTHONUNBUFFERED=1
 
