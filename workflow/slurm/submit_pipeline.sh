@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./workflow/slurm/submit_pipeline.sh              # Production mode
-#   ./workflow/slurm/submit_pipeline.sh --devel      # Devel mode (10k items, 5s timeout)
+#   ./workflow/slurm/submit_pipeline.sh --devel      # Devel mode (10k items, partition default time)
 #   ./workflow/slurm/submit_pipeline.sh --stage docking  # Single stage
 #
 
@@ -19,6 +19,7 @@ STAGE="all"
 CLUSTER="arc"
 PARTITION=""
 TIME="00:30:00"      # 30 minutes for orchestrator (it just submits/waits)
+TIME_SET="false"
 MEM="4G"
 CONFIG="config/config.yaml"
 
@@ -28,7 +29,9 @@ while [[ $# -gt 0 ]]; do
         --devel)
             DEVEL="--devel"
             PARTITION="devel"
-            TIME="00:10:00"  # 10 minutes for devel orchestrator
+            if [[ "${TIME_SET}" == "false" ]]; then
+                TIME=""
+            fi
             shift
             ;;
         --stage)
@@ -41,6 +44,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --time)
             TIME="$2"
+            TIME_SET="true"
             shift 2
             ;;
         --config)
@@ -69,7 +73,7 @@ echo "Project root: ${PROJECT_ROOT}"
 echo "Stage: ${STAGE}"
 echo "Cluster: ${CLUSTER}"
 echo "Partition: ${PARTITION:-none}"
-echo "Time limit: ${TIME}"
+echo "Time limit: ${TIME:-partition default}"
 echo "Devel mode: ${DEVEL:-no}"
 echo "========================================"
 
@@ -78,11 +82,15 @@ PARTITION_FLAG=()
 if [[ -n "${PARTITION}" ]]; then
     PARTITION_FLAG=(--partition="${PARTITION}")
 fi
+TIME_FLAG=()
+if [[ -n "${TIME}" ]]; then
+    TIME_FLAG=(--time="${TIME}")
+fi
 
 JOB_ID=$(sbatch \
     --clusters="${CLUSTER}" \
     "${PARTITION_FLAG[@]}" \
-    --time="${TIME}" \
+    "${TIME_FLAG[@]}" \
     --mem="${MEM}" \
     --job-name="vs-orchestrator" \
     --output="${PROJECT_ROOT}/data/slurm/logs/orchestrator_%j.out" \
