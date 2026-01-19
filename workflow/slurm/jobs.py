@@ -55,8 +55,8 @@ def create_chunks(
 
     Args:
         items: DataFrame of items to process
-        chunk_dir: Directory to write chunk files
-        stage: Stage name (retained for interface consistency)
+        chunk_dir: Base directory for chunk files
+        stage: Stage name (used for stage-specific subdirectory)
         partition: Queue profile key (determines max array size)
 
     Returns:
@@ -72,11 +72,12 @@ def create_chunks(
     n_chunks = min(n_items, max_array)
     chunk_size = (n_items + n_chunks - 1) // n_chunks  # Ceiling division
 
-    # Create chunk directory
-    chunk_dir.mkdir(parents=True, exist_ok=True)
+    # Create stage-specific chunk directory
+    stage_chunks = chunk_dir / stage
+    stage_chunks.mkdir(parents=True, exist_ok=True)
 
-    # Clear old chunk files
-    for old_file in chunk_dir.glob('chunk_*.json'):
+    # Clear old chunk files for this stage only
+    for old_file in stage_chunks.glob('chunk_*.json'):
         old_file.unlink()
 
     # Write chunk files
@@ -85,7 +86,7 @@ def create_chunks(
 
     for i in range(0, n_items, chunk_size):
         chunk_records = records[i:i + chunk_size]
-        chunk_file = chunk_dir / f'chunk_{chunk_id:05d}.json'
+        chunk_file = stage_chunks / f'chunk_{chunk_id:05d}.json'
 
         with open(chunk_file, 'w') as f:
             json.dump(chunk_records, f, indent=2, default=str)
@@ -101,13 +102,14 @@ def read_chunk(chunk_dir: Path, stage: str, chunk_id: int) -> list:
 
     Args:
         chunk_dir: Base chunk directory
-        stage: Stage name (retained for interface consistency)
+        stage: Stage name (used for stage-specific subdirectory)
         chunk_id: Chunk index (from SLURM_ARRAY_TASK_ID)
 
     Returns:
         List of item records
     """
-    chunk_file = chunk_dir / f'chunk_{chunk_id:05d}.json'
+    stage_chunks = chunk_dir / stage
+    chunk_file = stage_chunks / f'chunk_{chunk_id:05d}.json'
 
     if not chunk_file.exists():
         raise FileNotFoundError(f"Chunk file not found: {chunk_file}")
@@ -384,12 +386,13 @@ def cleanup_stage_files(
         results_dir: Base results directory
         stage: Stage name
     """
-    # Remove chunk files
-    if chunk_dir.exists():
-        for f in chunk_dir.glob('chunk_*.json'):
+    # Remove chunk files for this stage
+    stage_chunks = chunk_dir / stage
+    if stage_chunks.exists():
+        for f in stage_chunks.glob('chunk_*.json'):
             f.unlink()
 
-    # Remove result files
+    # Remove result files for this stage
     stage_results = results_dir / stage
     if stage_results.exists():
         for f in stage_results.glob('result_*.json'):
