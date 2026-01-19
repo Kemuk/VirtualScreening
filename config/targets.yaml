@@ -47,12 +47,110 @@ targets:
       y: 12.4
       z: 19.8
 
-  # Add more targets as needed...
-  # FEN1:
-  #   receptor_mol2: "LIT_PCBA/FEN1/FEN1_protein.mol2"
-  #   actives_smi: "LIT_PCBA/FEN1/actives.smi"
-  #   inactives_smi: "LIT_PCBA/FEN1/inactives.smi"
-  #   box_center:
-  #     x: 0.0
-  #     y: 0.0
-  #     z: 0.0
+  ESR1_ago:
+    receptor_mol2: "LIT_PCBA/ESR1_ago/ESR1_ago_protein.mol2"
+    actives_smi: "LIT_PCBA/ESR1_ago/actives.smi"
+    inactives_smi: "LIT_PCBA/ESR1_ago/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  FEN1:
+    receptor_mol2: "LIT_PCBA/FEN1/FEN1_protein.mol2"
+    actives_smi: "LIT_PCBA/FEN1/actives.smi"
+    inactives_smi: "LIT_PCBA/FEN1/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  GBA:
+    receptor_mol2: "LIT_PCBA/GBA/GBA_protein.mol2"
+    actives_smi: "LIT_PCBA/GBA/actives.smi"
+    inactives_smi: "LIT_PCBA/GBA/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  IDH1:
+    receptor_mol2: "LIT_PCBA/IDH1/IDH1_protein.mol2"
+    actives_smi: "LIT_PCBA/IDH1/actives.smi"
+    inactives_smi: "LIT_PCBA/IDH1/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  KAT2A:
+    receptor_mol2: "LIT_PCBA/KAT2A/KAT2A_protein.mol2"
+    actives_smi: "LIT_PCBA/KAT2A/actives.smi"
+    inactives_smi: "LIT_PCBA/KAT2A/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  MAPK1:
+    receptor_mol2: "LIT_PCBA/MAPK1/MAPK1_protein.mol2"
+    actives_smi: "LIT_PCBA/MAPK1/actives.smi"
+    inactives_smi: "LIT_PCBA/MAPK1/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  MTORC1:
+    receptor_mol2: "LIT_PCBA/MTORC1/MTORC1_protein.mol2"
+    actives_smi: "LIT_PCBA/MTORC1/actives.smi"
+    inactives_smi: "LIT_PCBA/MTORC1/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  OPRK1:
+    receptor_mol2: "LIT_PCBA/OPRK1/OPRK1_protein.mol2"
+    actives_smi: "LIT_PCBA/OPRK1/actives.smi"
+    inactives_smi: "LIT_PCBA/OPRK1/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  PKM2:
+    receptor_mol2: "LIT_PCBA/PKM2/PKM2_protein.mol2"
+    actives_smi: "LIT_PCBA/PKM2/actives.smi"
+    inactives_smi: "LIT_PCBA/PKM2/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  PPARG:
+    receptor_mol2: "LIT_PCBA/PPARG/PPARG_protein.mol2"
+    actives_smi: "LIT_PCBA/PPARG/actives.smi"
+    inactives_smi: "LIT_PCBA/PPARG/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  TP53:
+    receptor_mol2: "LIT_PCBA/TP53/TP53_protein.mol2"
+    actives_smi: "LIT_PCBA/TP53/actives.smi"
+    inactives_smi: "LIT_PCBA/TP53/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+  VDR:
+    receptor_mol2: "LIT_PCBA/VDR/VDR_protein.mol2"
+    actives_smi: "LIT_PCBA/VDR/actives.smi"
+    inactives_smi: "LIT_PCBA/VDR/inactives.smi"
+    box_center:
+      x: 0.0
+      y: 0.0
+      z: 0.0

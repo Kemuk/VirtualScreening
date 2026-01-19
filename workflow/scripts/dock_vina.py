@@ -17,8 +17,6 @@ import sys
 import subprocess
 import os
 from pathlib import Path
-from tqdm import tqdm
-import time
 
 
 def run_vina_docking(
@@ -39,7 +37,6 @@ def run_vina_docking(
     threads: int = None,
     gpu_threads: int = 8000,
     mode: str = "cpu",
-    show_progress: bool = False,
 ) -> bool:
     """
     Run AutoDock Vina docking.
@@ -100,7 +97,6 @@ def run_vina_docking(
         "--size_x", str(size_x),
         "--size_y", str(size_y),
         "--size_z", str(size_z),
-        "--num_modes", str(num_modes),
         "--seed", str(seed),
     ]
 
@@ -120,71 +116,30 @@ def run_vina_docking(
     else:
         raise ValueError(f"Unknown mode: {mode}. Expected 'gpu' or 'cpu'.")
 
-    # Prepare environment with vina directory in LD_LIBRARY_PATH
-    env = os.environ.copy()
-    ld_library_path = env.get('LD_LIBRARY_PATH', '')
-    if ld_library_path:
-        env['LD_LIBRARY_PATH'] = f"{vina_dir}:{ld_library_path}"
-    else:
-        env['LD_LIBRARY_PATH'] = str(vina_dir)
+    # Run docking (use check=False like legacy)
+    result = subprocess.run(
+        cmd,
+        cwd=str(vina_dir),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    stdout = result.stdout
+    stderr = result.stderr
+    returncode = result.returncode
 
-    # Run docking with progress bar
-    try:
-        if show_progress:
-            # Estimate docking time for progress bar (very rough)
-            estimated_time = exhaustiveness * 2  # seconds, rough estimate
-            with tqdm(total=100, desc=f"Docking {ligand.name}", unit="%", ncols=80) as pbar:
-                # Run in vina directory for shared library access
-                result = subprocess.Popen(
-                    cmd,
-                    cwd=str(vina_dir),
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
+    # Write log file
+    with open(log_file_abs, 'w') as f:
+        f.write(f"Command: {' '.join(cmd)}\n")
+        f.write(f"Working directory: {vina_dir}\n")
+        f.write(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', '')}\n")
+        f.write(f"Exit code: {returncode}\n")
+        f.write(f"\nStdout:\n{stdout}\n")
+        if stderr:
+            f.write(f"\nStderr:\n{stderr}\n")
 
-                # Update progress bar while process runs
-                start_time = time.time()
-                while result.poll() is None:
-                    elapsed = time.time() - start_time
-                    progress = min(99, int((elapsed / estimated_time) * 100))
-                    pbar.n = progress
-                    pbar.refresh()
-                    time.sleep(0.5)
-
-                # Process finished
-                pbar.n = 100
-                pbar.refresh()
-
-                stdout, stderr = result.communicate()
-
-                if result.returncode != 0:
-                    raise subprocess.CalledProcessError(
-                        result.returncode, cmd, stdout, stderr
-                    )
-        else:
-            # Run without progress bar
-            result = subprocess.run(
-                cmd,
-                cwd=str(vina_dir),
-                env=env,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            stdout = result.stdout
-            stderr = result.stderr
-
-        # Write log file
-        with open(log_file_abs, 'w') as f:
-            f.write(f"Command: {' '.join(cmd)}\n")
-            f.write(f"Working directory: {vina_dir}\n")
-            f.write(f"LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}\n")
-            f.write(f"\nStdout:\n{stdout}\n")
-            if stderr:
-                f.write(f"\nStderr:\n{stderr}\n")
-
+    # Determine success by checking if output file exists (like legacy)
+    if output_abs.exists():
         print(f"✓ Docking complete: {output}")
         print(f"  Log: {log_file}")
 
@@ -194,31 +149,13 @@ def run_vina_docking(
             print(f"  Best score: {best_score:.2f} kcal/mol")
 
         return True
-
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: Vina docking failed", file=sys.stderr)
+    else:
+        print(f"ERROR: Vina docking failed - output file not created", file=sys.stderr)
         print(f"Command: {' '.join(cmd)}", file=sys.stderr)
         print(f"Working directory: {vina_dir}", file=sys.stderr)
-        print(f"LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}", file=sys.stderr)
-        print(f"Exit code: {e.returncode}", file=sys.stderr)
-        print(f"Stdout: {e.stdout}", file=sys.stderr)
-        print(f"Stderr: {e.stderr}", file=sys.stderr)
-
-        # Write error log
-        with open(log_file_abs, 'w') as f:
-            f.write(f"Command: {' '.join(cmd)}\n")
-            f.write(f"Working directory: {vina_dir}\n")
-            f.write(f"LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}\n")
-            f.write(f"\nERROR: Exit code {e.returncode}\n")
-            f.write(f"\nStdout:\n{e.stdout}\n")
-            f.write(f"\nStderr:\n{e.stderr}\n")
-
-        return False
-
-    except FileNotFoundError:
-        print(f"ERROR: Vina executable not found: {vina_exec}", file=sys.stderr)
-        print(f"Working directory: {vina_dir}", file=sys.stderr)
-        print(f"Please install AutoDock Vina or check the tool path in config.yaml", file=sys.stderr)
+        print(f"Exit code: {returncode}", file=sys.stderr)
+        print(f"Stdout: {stdout}", file=sys.stderr)
+        print(f"Stderr: {stderr}", file=sys.stderr)
         return False
 
 
@@ -371,9 +308,6 @@ def main():
     parser.add_argument("--threads", type=int, help="CPU threads (CPU mode only)")
     parser.add_argument("--gpu-threads", type=int, default=8000, help="GPU threads (GPU mode only)")
 
-    # Progress
-    parser.add_argument("--progress", action="store_true", help="Show progress bar during docking")
-
     args = parser.parse_args()
 
     # Validate inputs
@@ -413,7 +347,6 @@ def main():
         threads=args.threads,
         gpu_threads=args.gpu_threads,
         mode=args.mode,
-        show_progress=args.progress,
     )
 
     if success:

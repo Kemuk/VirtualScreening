@@ -57,7 +57,8 @@ STAGES = {
         'function': 'workflow.scripts.dock_vina.process_batch',
         'partition': 'arc',
         'time': 60,
-        'mem': '16G',
+        'mem': '20G',
+        'cpus': 8,
     },
     'conversion': {
         'function': 'workflow.scripts.pdbqt_to_sdf.process_batch',
@@ -132,6 +133,7 @@ def run_orchestrator(
     devel: bool = False,
     max_items: Optional[int] = None,
     time_limit: Optional[int] = None,
+    overwrite: bool = False,
 ) -> bool:
     """
     Run orchestrator mode: submit and manage SLURM array job.
@@ -142,6 +144,7 @@ def run_orchestrator(
         devel: Use devel mode settings
         max_items: Override max items
         time_limit: Override time limit (minutes)
+        overwrite: Overwrite existing manifest if it exists
 
     Returns:
         True if successful
@@ -194,9 +197,13 @@ def run_orchestrator(
     # Special handling for manifest stage - it creates the manifest
     if stage == 'manifest':
         if manifest_path.exists():
-            print(f"Manifest already exists: {manifest_path}")
-            print("To recreate, delete the existing manifest first.")
-            return True
+            if overwrite:
+                print(f"Overwriting existing manifest: {manifest_path}")
+                manifest_path.unlink()
+            else:
+                print(f"Manifest already exists: {manifest_path}")
+                print("To recreate, use --overwrite or delete the existing manifest first.")
+                return True
 
         print("Creating manifest...")
         # Run create_manifest directly (not as array job)
@@ -263,6 +270,7 @@ def run_orchestrator(
         results_dir=results_dir,
         logs_dir=logs_dir,
         gres=stage_config.get('gres'),
+        cpus=stage_config.get('cpus'),
         config_path=config_path,
     )
 
@@ -369,6 +377,7 @@ def run_all_stages(
     devel: bool = False,
     max_items: Optional[int] = None,
     time_limit: Optional[int] = None,
+    overwrite: bool = False,
 ) -> bool:
     """
     Run all pipeline stages sequentially.
@@ -378,6 +387,7 @@ def run_all_stages(
         devel: Use devel mode settings
         max_items: Override max items
         time_limit: Override time limit (minutes)
+        overwrite: Overwrite existing manifest
 
     Returns:
         True if all stages successful
@@ -397,6 +407,7 @@ def run_all_stages(
             devel=devel,
             max_items=max_items,
             time_limit=time_limit,
+            overwrite=overwrite if stage == 'manifest' else False,
         )
 
         if not success:
@@ -461,6 +472,11 @@ Examples:
         type=int,
         help='Time limit in minutes',
     )
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='Overwrite existing manifest (for manifest stage)',
+    )
 
     # Worker mode arguments
     parser.add_argument(
@@ -509,6 +525,7 @@ Examples:
                 devel=args.devel,
                 max_items=args.max_items,
                 time_limit=args.time,
+                overwrite=args.overwrite,
             )
         else:
             success = run_orchestrator(
@@ -517,6 +534,7 @@ Examples:
                 devel=args.devel,
                 max_items=args.max_items,
                 time_limit=args.time,
+                overwrite=args.overwrite,
             )
 
     sys.exit(0 if success else 1)

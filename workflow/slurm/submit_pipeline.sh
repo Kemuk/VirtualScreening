@@ -18,9 +18,10 @@ DEVEL=""
 STAGE="all"
 CLUSTER="arc"
 PARTITION=""
-TIME="00:30:00"      # 30 minutes for orchestrator (it just submits/waits)
+TIME="24:00:00"      # 24 hours for orchestrator (waits for all stages)
 MEM="4G"
 CONFIG="config/config.yaml"
+OVERWRITE=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -47,9 +48,13 @@ while [[ $# -gt 0 ]]; do
             CONFIG="$2"
             shift 2
             ;;
+        --overwrite)
+            OVERWRITE="--overwrite"
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--devel] [--stage <stage>] [--partition <part>] [--time HH:MM:SS]"
+            echo "Usage: $0 [--devel] [--stage <stage>] [--partition <part>] [--time HH:MM:SS] [--overwrite]"
             exit 1
             ;;
     esac
@@ -71,6 +76,7 @@ echo "Cluster: ${CLUSTER}"
 echo "Partition: ${PARTITION:-none}"
 echo "Time limit: ${TIME}"
 echo "Devel mode: ${DEVEL:-no}"
+echo "Overwrite: ${OVERWRITE:-no}"
 echo "========================================"
 
 # Submit orchestrator job
@@ -89,7 +95,7 @@ JOB_ID=$(sbatch \
     --error="${PROJECT_ROOT}/data/slurm/logs/orchestrator_%j.err" \
     --chdir="${PROJECT_ROOT}" \
     --parsable \
-    --wrap="python -m workflow.slurm.run --stage ${STAGE} ${DEVEL} --config ${CONFIG}")
+    --wrap="python -m workflow.slurm.run --stage ${STAGE} ${DEVEL} ${OVERWRITE} --config ${CONFIG}")
 
 echo ""
 echo "Submitted orchestrator job: ${JOB_ID}"
