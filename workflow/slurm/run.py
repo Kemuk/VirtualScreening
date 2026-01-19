@@ -40,6 +40,7 @@ STAGES = {
         'partition': 'arc',
         'time': 15,  # 15 min per chunk (RDKit canonicalization + file checks)
         'mem': '4G',  # Lower memory per chunk since items are distributed
+        'max_chunks': 100,  # Limit to 100 array tasks even in production
     },
     'receptors': {
         'function': 'workflow.scripts.mol2_to_pdbqt.process_batch',
@@ -243,7 +244,10 @@ def run_orchestrator(
         partition_label = partition or "none"
         print(f"Cluster: {cluster}, partition: {partition_label}")
 
-        n_chunks = create_chunks(items_df, chunk_dir, stage, queue_profile)
+        n_chunks = create_chunks(
+            items_df, chunk_dir, stage, queue_profile,
+            max_chunks=stage_config.get('max_chunks'),
+        )
         print(f"Created {n_chunks} chunks")
 
         # Submit array job
@@ -333,7 +337,10 @@ def run_orchestrator(
     queue_profile = partition or stage_config['partition']
     partition_label = partition or "none"
     print(f"\nCreating chunks (cluster={cluster}, partition={partition_label})...")
-    n_chunks = create_chunks(items, chunk_dir, stage, queue_profile)
+    n_chunks = create_chunks(
+        items, chunk_dir, stage, queue_profile,
+        max_chunks=stage_config.get('max_chunks'),
+    )
     print(f"Created {n_chunks} chunks")
 
     # Submit array job

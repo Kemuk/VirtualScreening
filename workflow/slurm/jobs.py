@@ -46,6 +46,7 @@ def create_chunks(
     chunk_dir: Path,
     stage: str,
     partition: str = 'arc',
+    max_chunks: Optional[int] = None,
 ) -> int:
     """
     Split items into chunks and write chunk files.
@@ -58,11 +59,16 @@ def create_chunks(
         chunk_dir: Base directory for chunk files
         stage: Stage name (used for stage-specific subdirectory)
         partition: Queue profile key (determines max array size)
+        max_chunks: Optional override for maximum number of chunks
 
     Returns:
         Number of chunks created
     """
     max_array = PARTITION_CONFIG.get(partition, {}).get('max_array_size', 1000)
+
+    # Apply stage-specific max_chunks limit if provided
+    if max_chunks is not None:
+        max_array = min(max_array, max_chunks)
 
     # Calculate chunk size to stay within array limits
     n_items = len(items)
