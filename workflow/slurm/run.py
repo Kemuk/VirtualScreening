@@ -96,7 +96,7 @@ STAGES = {
 # Devel mode overrides
 DEVEL_CONFIG = {
     'max_items': 1000,  # 1000 ligands for quick testing
-    'time': None,  # No time override - use stage defaults
+    'time': 10,  # 10 minutes per task
     'partition': 'devel',
 }
 
