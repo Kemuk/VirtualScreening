@@ -81,6 +81,7 @@ def scan_targets(
     targets_config: Dict,
     workflow_config: Dict,
     project_root: Path,
+    max_items: int = None,
 ) -> List[Dict]:
     """
     Scan all targets and generate lightweight item records.
@@ -92,6 +93,7 @@ def scan_targets(
         targets_config: Targets configuration dict
         workflow_config: Workflow configuration dict
         project_root: Project root path
+        max_items: Maximum total items to return (for devel mode). None = no limit.
 
     Returns:
         List of item dicts ready for chunking
@@ -112,6 +114,9 @@ def scan_targets(
     items = []
 
     for protein_id, target_config in targets.items():
+        # Early exit if we've hit max_items
+        if max_items is not None and len(items) >= max_items:
+            break
         receptor_mol2 = project_root / target_config['receptor_mol2']
         actives_smi = project_root / target_config['actives_smi']
         inactives_smi = project_root / target_config['inactives_smi']
@@ -125,6 +130,8 @@ def scan_targets(
         actives_count = 0
         for ligand_id, smiles in parse_smiles_file_lazy(actives_smi):
             if max_actives is not None and actives_count >= max_actives:
+                break
+            if max_items is not None and len(items) >= max_items:
                 break
 
             items.append({
@@ -149,6 +156,8 @@ def scan_targets(
         inactives_count = 0
         for ligand_id, smiles in parse_smiles_file_lazy(inactives_smi):
             if max_inactives is not None and inactives_count >= max_inactives:
+                break
+            if max_items is not None and len(items) >= max_items:
                 break
 
             items.append({

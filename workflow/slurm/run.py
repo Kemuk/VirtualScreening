@@ -95,7 +95,7 @@ STAGES = {
 
 # Devel mode overrides
 DEVEL_CONFIG = {
-    'max_items': 1000,  # 1000 ligands for quick testing
+    'max_items': 10000,  # 10000 ligands for quick testing
     'time': 10,  # 10 minutes per task
     'partition': 'devel',
 }
@@ -225,6 +225,7 @@ def run_orchestrator(
             targets_config=targets_config,
             workflow_config=config,
             project_root=project_root,
+            max_items=max_items,  # Limits scan for devel mode
         )
         print(f"Found {len(items)} items to process")
 
