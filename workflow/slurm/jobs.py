@@ -96,14 +96,19 @@ def create_chunks(
     return chunk_id
 
 
-def read_chunk(chunk_dir: Path, stage: str, chunk_id: int) -> list:
+def read_chunk(chunk_dir: Path, stage: str, chunk_id: int, max_retries: int = 5) -> list:
     """
     Read a chunk file.
+
+    Includes retry logic to handle NFS filesystem caching delays where
+    files written by the orchestrator may not be immediately visible
+    to workers on different nodes.
 
     Args:
         chunk_dir: Base chunk directory
         stage: Stage name (used for stage-specific subdirectory)
         chunk_id: Chunk index (from SLURM_ARRAY_TASK_ID)
+        max_retries: Number of retries with exponential backoff (default 5)
 
     Returns:
         List of item records
@@ -111,8 +116,17 @@ def read_chunk(chunk_dir: Path, stage: str, chunk_id: int) -> list:
     stage_chunks = chunk_dir / stage
     chunk_file = stage_chunks / f'chunk_{chunk_id:05d}.json'
 
+    # Retry with exponential backoff for NFS caching issues
+    for attempt in range(max_retries):
+        if chunk_file.exists():
+            break
+        if attempt < max_retries - 1:
+            delay = 2 ** attempt  # 1, 2, 4, 8, 16 seconds
+            print(f"Chunk file not found, retrying in {delay}s: {chunk_file}")
+            time.sleep(delay)
+    
     if not chunk_file.exists():
-        raise FileNotFoundError(f"Chunk file not found: {chunk_file}")
+        raise FileNotFoundError(f"Chunk file not found after {max_retries} retries: {chunk_file}")
 
     with open(chunk_file) as f:
         return json.load(f)
