@@ -95,8 +95,8 @@ STAGES = {
 
 # Devel mode overrides
 DEVEL_CONFIG = {
-    'max_items': 10000,
-    'time': 1,  # 1 minute (SLURM minimum; actual task timeout ~5s via job)
+    'max_items': 1000,  # 1000 ligands for quick testing
+    'time': None,  # No time override - use stage defaults
     'partition': 'devel',
 }
 
