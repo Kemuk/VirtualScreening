@@ -196,11 +196,12 @@ def submit_array(
         cmd.append(f'--cpus-per-task={cpus}')
 
     # Add script and arguments
+    # Note: Pass base results_dir, not stage_results - write_results() adds the stage subdirectory
     cmd.extend([
         str(script_path),
         stage,
         str(chunk_dir),
-        str(stage_results),
+        str(results_dir),
     ])
 
     if config_path:
