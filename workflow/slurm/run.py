@@ -34,25 +34,28 @@ from .jobs import (
 
 
 # Stage configuration: maps stage name to processing function and resources
+# All CPU stages use max_chunks=100 to limit array job size
 STAGES = {
     'manifest': {
         'function': 'workflow.scripts.create_manifest.process_batch',
         'partition': 'arc',
         'time': 15,  # 15 min per chunk (RDKit canonicalization + file checks)
         'mem': '4G',  # Lower memory per chunk since items are distributed
-        'max_chunks': 100,  # Limit to 100 array tasks even in production
+        'max_chunks': 100,
     },
     'receptors': {
         'function': 'workflow.scripts.mol2_to_pdbqt.process_batch',
         'partition': 'arc',
         'time': 5,
         'mem': '4G',
+        'max_chunks': 100,
     },
     'ligands': {
         'function': 'workflow.scripts.prepare_all_ligands.process_batch',
         'partition': 'arc',
         'time': 30,
         'mem': '8G',
+        'max_chunks': 100,
     },
     'docking': {
         'function': 'workflow.scripts.dock_vina.process_batch',
@@ -60,18 +63,21 @@ STAGES = {
         'time': 60,
         'mem': '20G',
         'cpus': 8,
+        'max_chunks': 100,
     },
     'conversion': {
         'function': 'workflow.scripts.pdbqt_to_sdf.process_batch',
         'partition': 'arc',
         'time': 10,
         'mem': '4G',
+        'max_chunks': 100,
     },
     'aev_prep': {
         'function': 'workflow.scripts.prepare_aev_plig_csv.process_batch',
         'partition': 'arc',
         'time': 20,
         'mem': '8G',
+        'max_chunks': 100,
     },
     'aev_infer': {
         'function': 'workflow.scripts.rescore_aev_plig.process_batch',
@@ -79,18 +85,21 @@ STAGES = {
         'time': 120,
         'mem': '16G',
         'gres': 'gpu:1',
+        # No max_chunks - GPU jobs use partition default (1000)
     },
     'aev_merge': {
         'function': 'workflow.scripts.update_manifest_aev_plig.process_batch',
         'partition': 'arc',
         'time': 10,
         'mem': '8G',
+        'max_chunks': 100,
     },
     'results': {
         'function': 'workflow.scripts.compute_results.process_batch',
         'partition': 'arc',
         'time': 30,
         'mem': '16G',
+        'max_chunks': 100,
     },
 }
 
