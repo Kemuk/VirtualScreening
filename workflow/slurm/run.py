@@ -34,28 +34,28 @@ from .jobs import (
 
 
 # Stage configuration: maps stage name to processing function and resources
-# Light stages use max_chunks=100, heavy stages (docking, aev_*) use max_chunks=1000
+# Light stages use max_chunks=500, heavy stages (docking, aev_*) use max_chunks=1000
 STAGES = {
     'manifest': {
         'function': 'workflow.scripts.create_manifest.process_batch',
         'partition': 'arc',
         'time': 15,  # 15 min per chunk (RDKit canonicalization + file checks)
         'mem': '4G',  # Lower memory per chunk since items are distributed
-        'max_chunks': 100,
+        'max_chunks': 500,
     },
     'receptors': {
         'function': 'workflow.scripts.mol2_to_pdbqt.process_batch',
         'partition': 'arc',
         'time': 5,
         'mem': '4G',
-        'max_chunks': 100,
+        'max_chunks': 500,
     },
     'ligands': {
         'function': 'workflow.scripts.prepare_all_ligands.process_batch',
         'partition': 'arc',
         'time': 30,
         'mem': '8G',
-        'max_chunks': 100,
+        'max_chunks': 500,
     },
     'docking': {
         'function': 'workflow.scripts.dock_vina.process_batch',
@@ -70,7 +70,7 @@ STAGES = {
         'partition': 'arc',
         'time': 10,
         'mem': '4G',
-        'max_chunks': 100,
+        'max_chunks': 500,
     },
     'aev_prep': {
         'function': 'workflow.scripts.prepare_aev_plig_csv.process_batch',
@@ -99,7 +99,7 @@ STAGES = {
         'partition': 'arc',
         'time': 30,
         'mem': '16G',
-        'max_chunks': 100,
+        'max_chunks': 500,
     },
 }
 
