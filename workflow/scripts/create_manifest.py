@@ -371,6 +371,114 @@ def create_ligand_entry(
     }
 
 
+def process_batch(items: List[Dict], config: Dict) -> List[Dict]:
+    """
+    Process a batch of items for manifest creation (worker function).
+
+    This is called by SLURM array workers to process their chunk.
+    Each item is processed to create a manifest entry with:
+    - Canonicalized SMILES (via RDKit)
+    - Generated file paths
+    - Status checks (file existence)
+
+    Args:
+        items: List of item dicts from scan_manifest_items.py
+        config: Workflow configuration dict
+
+    Returns:
+        List of result dicts (one per successfully processed item)
+    """
+    from pathlib import Path
+    from datetime import datetime
+
+    results = []
+    project_root = Path(config.get('project_root', '.')).resolve()
+
+    for item in items:
+        try:
+            ligand_id = item['ligand_id']
+            protein_id = item['protein_id']
+            smiles = item['smiles']
+            is_active = item['is_active']
+
+            # Canonicalize SMILES
+            smiles_canonical = canonicalize_smiles(smiles)
+
+            # Build paths
+            target_dir = project_root / item['target_dir']
+            subdir = "actives" if is_active else "inactives"
+
+            ligand_pdbqt_path = target_dir / f"pdbqt/{subdir}/{ligand_id}.pdbqt"
+            docked_pdbqt_path = target_dir / f"docked_vina/{subdir}/{ligand_id}_docked.pdbqt"
+            docking_log_path = target_dir / f"docked_vina/{subdir}/log/{ligand_id}.log"
+            docked_sdf_path = target_dir / f"docked_sdf/{subdir}/{ligand_id}.sdf"
+            receptor_pdbqt = target_dir / f"{protein_id}_protein.pdbqt"
+            receptor_pdb = target_dir / f"{protein_id}_protein.pdb"
+
+            # Check statuses
+            preparation_status = ligand_pdbqt_path.exists()
+            docking_status = docked_pdbqt_path.exists()
+            vina_score = extract_vina_score(docking_log_path) if docking_status else None
+
+            now = datetime.now().isoformat()
+
+            result = {
+                'ligand_id': ligand_id,
+                'protein_id': protein_id,
+                'dataset': item['dataset'],
+                'compound_key': f"{protein_id}_{ligand_id}",
+                'is_active': is_active,
+                'smiles_input': smiles,
+                'smiles_canonical': smiles_canonical,
+                'source_smiles_file': item['source_smiles_file'],
+                'source_sdf_path': None,
+                'source_mol2_path': item['receptor_mol2'],
+                'preparation_status': preparation_status,
+                'ligand_pdbqt_path': str(ligand_pdbqt_path.relative_to(project_root)),
+                'receptor_pdbqt_path': str(receptor_pdbqt.relative_to(project_root)),
+                'receptor_pdb_path': str(receptor_pdb.relative_to(project_root)),
+                'box_center_x': item['box_center_x'],
+                'box_center_y': item['box_center_y'],
+                'box_center_z': item['box_center_z'],
+                'box_size_x': item['box_size_x'],
+                'box_size_y': item['box_size_y'],
+                'box_size_z': item['box_size_z'],
+                'docking_status': docking_status,
+                'docked_pdbqt_path': str(docked_pdbqt_path.relative_to(project_root)),
+                'docking_log_path': str(docking_log_path.relative_to(project_root)),
+                'vina_score': vina_score,
+                'rescoring_status': False,
+                'docked_sdf_path': str(docked_sdf_path.relative_to(project_root)),
+                'binding_affinity_pK': None,
+                'aev_plig_best_score': None,
+                'aev_prediction_0': None,
+                'aev_prediction_1': None,
+                'aev_prediction_2': None,
+                'aev_prediction_3': None,
+                'aev_prediction_4': None,
+                'aev_prediction_5': None,
+                'aev_prediction_6': None,
+                'aev_prediction_7': None,
+                'aev_prediction_8': None,
+                'aev_prediction_9': None,
+                'created_at': now,
+                'last_updated': now,
+                'success': True,
+            }
+            results.append(result)
+
+        except Exception as e:
+            # Record failure but continue processing
+            results.append({
+                'ligand_id': item.get('ligand_id', 'unknown'),
+                'protein_id': item.get('protein_id', 'unknown'),
+                'success': False,
+                'error': str(e),
+            })
+
+    return results
+
+
 def extract_vina_score(log_path: Path) -> Optional[float]:
     """
     Extract binding affinity from Vina log file.
