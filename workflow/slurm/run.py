@@ -34,7 +34,7 @@ from .jobs import (
 
 
 # Stage configuration: maps stage name to processing function and resources
-# All CPU stages use max_chunks=100 to limit array job size
+# Light stages use max_chunks=100, heavy stages (docking, aev_*) use max_chunks=1000
 STAGES = {
     'manifest': {
         'function': 'workflow.scripts.create_manifest.process_batch',
@@ -63,7 +63,7 @@ STAGES = {
         'time': 60,
         'mem': '20G',
         'cpus': 8,
-        'max_chunks': 100,
+        'max_chunks': 1000,
     },
     'conversion': {
         'function': 'workflow.scripts.pdbqt_to_sdf.process_batch',
@@ -77,7 +77,7 @@ STAGES = {
         'partition': 'arc',
         'time': 20,
         'mem': '8G',
-        'max_chunks': 100,
+        'max_chunks': 1000,
     },
     'aev_infer': {
         'function': 'workflow.scripts.rescore_aev_plig.process_batch',
@@ -85,14 +85,14 @@ STAGES = {
         'time': 120,
         'mem': '16G',
         'gres': 'gpu:1',
-        # No max_chunks - GPU jobs use partition default (1000)
+        'max_chunks': 1000,
     },
     'aev_merge': {
         'function': 'workflow.scripts.update_manifest_aev_plig.process_batch',
         'partition': 'arc',
         'time': 10,
         'mem': '8G',
-        'max_chunks': 100,
+        'max_chunks': 1000,
     },
     'results': {
         'function': 'workflow.scripts.compute_results.process_batch',
