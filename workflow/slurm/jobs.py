@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 from typing import Optional
 import pandas as pd
+from tqdm import tqdm
 
 
 # SLURM queue limits (cluster or partition key)
@@ -359,7 +360,8 @@ def collect_results(results_dir: Path, stage: str) -> list:
     stage_results = results_dir / stage
     all_results = []
 
-    for result_file in sorted(stage_results.glob('result_*.json')):
+    result_files = sorted(stage_results.glob('result_*.json'))
+    for result_file in tqdm(result_files, desc="Collecting results", unit="file"):
         with open(result_file) as f:
             chunk_results = json.load(f)
             all_results.extend(chunk_results)
