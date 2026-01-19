@@ -208,6 +208,13 @@ def run_orchestrator(
         print("Creating manifest...")
         # Run create_manifest directly (not as array job)
         import subprocess
+        from datetime import datetime
+
+        # Create separate log file for manifest creation
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        manifest_log = logs_dir / f"manifest_{timestamp}.log"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
         cmd = [
             'python', 'workflow/scripts/create_manifest.py',
             '--config', str(config_path),
@@ -216,7 +223,11 @@ def run_orchestrator(
             '--project-root', str(project_root),
             '--overwrite',
         ]
-        result = subprocess.run(cmd, cwd=str(project_root))
+
+        print(f"Manifest log: {manifest_log}")
+        with open(manifest_log, 'w') as log_file:
+            result = subprocess.run(cmd, cwd=str(project_root), stdout=log_file, stderr=subprocess.STDOUT)
+
         if result.returncode == 0:
             print(f"\n{'='*60}")
             print("Manifest created successfully!")
@@ -224,6 +235,7 @@ def run_orchestrator(
             return True
         else:
             print("ERROR: Manifest creation failed", file=sys.stderr)
+            print(f"See log for details: {manifest_log}", file=sys.stderr)
             return False
 
     # For all other stages, check manifest exists
