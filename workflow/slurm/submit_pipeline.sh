@@ -19,7 +19,7 @@ STAGE="all"
 CLUSTER="arc"
 PARTITION=""
 TIME="24:00:00"      # 24 hours for orchestrator (waits for all stages)
-MEM="4G"
+MEM="16G"
 CONFIG="config/config.yaml"
 OVERWRITE=""
 

@@ -38,8 +38,8 @@ STAGES = {
     'manifest': {
         'function': 'workflow.scripts.create_manifest.process_batch',
         'partition': 'arc',
-        'time': 10,
-        'mem': '8G',
+        'time': 15,  # 15 min per chunk (RDKit canonicalization + file checks)
+        'mem': '4G',  # Lower memory per chunk since items are distributed
     },
     'receptors': {
         'function': 'workflow.scripts.mol2_to_pdbqt.process_batch',
@@ -95,8 +95,8 @@ STAGES = {
 
 # Devel mode overrides
 DEVEL_CONFIG = {
-    'max_items': 10000,
-    'time': 1,  # 1 minute (SLURM minimum; actual task timeout ~5s via job)
+    'max_items': 10000,  # 10000 ligands for quick testing
+    'time': 10,  # 10 minutes per task
     'partition': 'devel',
 }
 
@@ -194,37 +194,117 @@ def run_orchestrator(
     print(f"Stage: {stage}")
     print(f"{'='*60}")
 
-    # Special handling for manifest stage - it creates the manifest
+    # Special handling for manifest stage - uses array jobs to create manifest
     if stage == 'manifest':
         if manifest_path.exists():
             if overwrite:
-                print(f"Overwriting existing manifest: {manifest_path}")
+                # Backup existing manifest before overwriting
+                backup_dir = manifest_path.parent / "backup"
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                from datetime import datetime
+                import shutil
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = backup_dir / f"manifest_{timestamp}.parquet"
+                shutil.copy2(manifest_path, backup_path)
+                print(f"Backed up existing manifest to: {backup_path}")
                 manifest_path.unlink()
             else:
                 print(f"Manifest already exists: {manifest_path}")
                 print("To recreate, use --overwrite or delete the existing manifest first.")
                 return True
 
-        print("Creating manifest...")
-        # Run create_manifest directly (not as array job)
-        import subprocess
-        cmd = [
-            'python', 'workflow/scripts/create_manifest.py',
-            '--config', str(config_path),
-            '--targets', str(project_root / config.get('targets_config', 'config/targets.yaml')),
-            '--output', str(manifest_path),
-            '--project-root', str(project_root),
-            '--overwrite',
-        ]
-        result = subprocess.run(cmd, cwd=str(project_root))
-        if result.returncode == 0:
-            print(f"\n{'='*60}")
-            print("Manifest created successfully!")
-            print(f"{'='*60}\n")
-            return True
-        else:
-            print("ERROR: Manifest creation failed", file=sys.stderr)
+        print("Creating manifest using array jobs...")
+
+        # Phase 1: Scan items (lightweight, no RDKit)
+        print("\nPhase 1: Scanning SMILES files...")
+        from workflow.scripts.scan_manifest_items import scan_targets
+        targets_path = project_root / config.get('targets_config', 'config/targets.yaml')
+        targets_config = load_config(targets_path)
+
+        items = scan_targets(
+            targets_config=targets_config,
+            workflow_config=config,
+            project_root=project_root,
+            max_items=max_items,  # Limits scan for devel mode
+        )
+        print(f"Found {len(items)} items to process")
+
+        if len(items) == 0:
+            print("ERROR: No items found. Check your SMILES files.", file=sys.stderr)
             return False
+
+        # Convert to DataFrame for chunking
+        import pandas as pd
+        items_df = pd.DataFrame(items)
+
+        # Phase 2: Create chunks and submit array job
+        print("\nPhase 2: Creating chunks and submitting array job...")
+        queue_profile = partition or stage_config['partition']
+        partition_label = partition or "none"
+        print(f"Cluster: {cluster}, partition: {partition_label}")
+
+        n_chunks = create_chunks(items_df, chunk_dir, stage, queue_profile)
+        print(f"Created {n_chunks} chunks")
+
+        # Submit array job
+        job_id = submit_array(
+            stage=stage,
+            n_chunks=n_chunks,
+            cluster=cluster,
+            partition=partition,
+            time_minutes=stage_config['time'],
+            mem=stage_config['mem'],
+            script_path=script_path,
+            chunk_dir=chunk_dir,
+            results_dir=results_dir,
+            logs_dir=logs_dir,
+            gres=stage_config.get('gres'),
+            cpus=stage_config.get('cpus'),
+            config_path=config_path,
+        )
+
+        # Wait for completion
+        print(f"\nWaiting for job {job_id}...")
+        summary = wait_for_job(job_id)
+
+        print(f"\nJob summary:")
+        print(f"  Total tasks: {summary['total']}")
+        print(f"  Completed: {summary['completed']}")
+        print(f"  Failed: {summary['failed']}")
+
+        if not summary['success']:
+            print(f"\nERROR: {summary['failed']} tasks failed", file=sys.stderr)
+            return False
+
+        # Phase 3: Build manifest from results
+        print("\nPhase 3: Building manifest from results...")
+        results = collect_results(results_dir, stage)
+        print(f"Collected {len(results)} results")
+
+        # Filter successful results and build manifest
+        successful = [r for r in results if r.get('success', True)]
+        failed = [r for r in results if not r.get('success', True)]
+
+        if failed:
+            print(f"Warning: {len(failed)} items failed processing")
+
+        if not successful:
+            print("ERROR: No successful results to build manifest from", file=sys.stderr)
+            return False
+
+        # Build manifest using build_manifest.py logic
+        from workflow.scripts.build_manifest import build_manifest
+        n_entries = build_manifest(results, manifest_path)
+
+        # Cleanup
+        cleanup_stage_files(chunk_dir, results_dir, stage)
+
+        print(f"\n{'='*60}")
+        print(f"Manifest created successfully!")
+        print(f"  Total entries: {n_entries}")
+        print(f"  Location: {manifest_path}")
+        print(f"{'='*60}\n")
+        return True
 
     # For all other stages, check manifest exists
     if not manifest_path.exists():
@@ -343,6 +423,10 @@ def run_worker(
 
     # Load config if provided
     config = load_config(config_path) if config_path else {}
+
+    # Add project_root to config (needed by manifest workers)
+    if config_path:
+        config['project_root'] = str(config_path.parent.parent)
 
     # Read chunk
     print(f"Worker: stage={stage}, chunk_id={chunk_id}")
