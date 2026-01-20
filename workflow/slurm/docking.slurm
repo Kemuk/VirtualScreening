@@ -5,7 +5,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=2
-#SBATCH --partition=htc
+#SBATCH --clusters=htc
 #SBATCH --gres=gpu:1
 
 # Docking worker SLURM script
