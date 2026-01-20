@@ -223,9 +223,16 @@ def process_slice(
 
         if predictions_path is None:
             print(f"Task {task_id}: AEV-PLIG failed")
-            # Write all as failed
+            # Write all as failed with path info for debugging
             results = [
-                {'compound_key': row['compound_key'], 'success': False, 'error': 'AEV-PLIG failed'}
+                {
+                    'compound_key': row['compound_key'],
+                    'ligand_id': row.get('ligand_id', ''),
+                    'docked_sdf_path': row.get('docked_sdf_path', ''),
+                    'success': False,
+                    'score': None,
+                    'error': 'AEV-PLIG failed',
+                }
                 for _, row in df.iterrows()
             ]
         else:
@@ -233,20 +240,29 @@ def process_slice(
             scores = parse_predictions(predictions_path)
             print(f"Task {task_id}: Got {len(scores)} predictions")
 
-            # Build results
+            # Build results with path info for debugging
             results = []
             for _, row in df.iterrows():
                 compound_key = row['compound_key']
+                ligand_id = row.get('ligand_id', '')
+                docked_sdf_path = row.get('docked_sdf_path', '')
+
                 if compound_key in scores:
                     results.append({
                         'compound_key': compound_key,
+                        'ligand_id': ligand_id,
+                        'docked_sdf_path': docked_sdf_path,
                         'success': True,
                         'score': scores[compound_key],
+                        'error': '',
                     })
                 else:
                     results.append({
                         'compound_key': compound_key,
+                        'ligand_id': ligand_id,
+                        'docked_sdf_path': docked_sdf_path,
                         'success': False,
+                        'score': None,
                         'error': 'No prediction returned',
                     })
 

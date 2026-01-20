@@ -4,32 +4,59 @@
 #SBATCH --error=data/logs/slurm/docking_%A_%a.err
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
-#SBATCH --partition=htc
+#SBATCH --cpus-per-task=2
+#SBATCH --clusters=htc
 #SBATCH --gres=gpu:1
 
 # Docking worker SLURM script
 # Usage: sbatch --array=0-499 workflow/slurm/docking.slurm
+#
+# Note: run_stage.sh passes PROJECT_DIR and overrides --output/--error paths
 
-# Configuration - adjust these as needed
-NUM_CHUNKS=${SLURM_ARRAY_TASK_COUNT:-500}
-PENDING_FILE="data/master/pending/docking.parquet"
-CONFIG_FILE="config/config.yaml"
-RESULTS_DIR="data/master/results"
+set -euo pipefail
+set -x
+
+ulimit -s unlimited || true
+
+# Load required modules (matching submit_gpu.slurm)
+module purge || true
+module load Anaconda3 || true
+module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
+
+# Project directory (must be set by run_stage.sh or fallback to SLURM_SUBMIT_DIR)
+PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+cd "${PROJECT_DIR}"
+
+# Configuration - all paths relative to PROJECT_DIR
+NUM_CHUNKS=${NUM_CHUNKS:-${SLURM_ARRAY_TASK_COUNT:-500}}
+PENDING_FILE="${PROJECT_DIR}/data/master/pending/docking.parquet"
+CONFIG_FILE="${PROJECT_DIR}/config/config.yaml"
+RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 
 # Create log directory
-mkdir -p data/logs/slurm
+mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
-# Load required modules (adjust for your cluster)
-module load Boost/1.79.0-GCC-11.3.0 2>/dev/null || true
-module load CUDA/11.7.0 2>/dev/null || true
 
-# Activate conda environment
-source activate snakemake_env 2>/dev/null || conda activate snakemake_env 2>/dev/null || true
+# Resolve conda environment to absolute path
+# Uses $DATA if set, otherwise falls back to parent of PROJECT_DIR
+if [[ -n "${DATA:-}" ]]; then
+    CONPREFIX="$(readlink -f "${DATA}/snakemake_env")"
+else
+    CONPREFIX="$(readlink -f "${PROJECT_DIR}/../snakemake_env")"
+fi
+export CONPREFIX
+
+echo "Conda environment: ${CONPREFIX}"
+PYTHON_BIN="${CONPREFIX}/bin/python"
+echo "Python binary: ${PYTHON_BIN}"
+
+export PYTHONUNBUFFERED=1
 
 # Print job info
 echo "=========================================="
 echo "Docking Worker"
 echo "=========================================="
+echo "Project dir: ${PROJECT_DIR}"
 echo "Task ID: ${SLURM_ARRAY_TASK_ID}"
 echo "Num chunks: ${NUM_CHUNKS}"
 echo "Pending file: ${PENDING_FILE}"
@@ -37,11 +64,8 @@ echo "Hostname: $(hostname)"
 echo "GPU: ${CUDA_VISIBLE_DEVICES:-none}"
 echo "=========================================="
 
-# Change to project directory
-cd "${SLURM_SUBMIT_DIR:-/home/user/VirtualScreening}"
-
-# Run worker
-python -m workflow.slurm.workers.docking \
+# Run worker using explicit python path
+"${PYTHON_BIN}" -m workflow.slurm.workers.docking \
     --pending "${PENDING_FILE}" \
     --task-id "${SLURM_ARRAY_TASK_ID}" \
     --num-chunks "${NUM_CHUNKS}" \

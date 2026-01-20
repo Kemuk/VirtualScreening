@@ -112,10 +112,20 @@ def run_vina_docking(
             "--cpu", str(os.cpu_count() or 8),
         ])
 
+    # Set up environment with LD_LIBRARY_PATH including vina directory
+    # This is needed for Vina GPU which has shared libraries in its directory
+    env = os.environ.copy()
+    existing_ld_path = env.get('LD_LIBRARY_PATH', '')
+    if existing_ld_path:
+        env['LD_LIBRARY_PATH'] = f"{vina_dir}:{existing_ld_path}"
+    else:
+        env['LD_LIBRARY_PATH'] = str(vina_dir)
+
     # Run docking
     result = subprocess.run(
         cmd,
         cwd=str(vina_dir),
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -147,18 +157,37 @@ def process_item(row: dict, config: dict, targets_config: dict) -> dict:
         targets_config: Targets config with box parameters
 
     Returns:
-        Result dict with compound_key, success, score, error
+        Result dict with compound_key, ligand_id, paths, success, score, error
     """
     compound_key = row['compound_key']
+    ligand_id = row.get('ligand_id', '')
     protein_id = row['protein_id']
 
-    # Get paths
-    ligand_path = Path(row['ligand_pdbqt_path'])
-    receptor_path = Path(row['receptor_pdbqt_path'])
-    output_path = Path(row['docked_pdbqt_path'])
+    # Get paths (store as strings for CSV output)
+    ligand_pdbqt_path = row.get('ligand_pdbqt_path', '')
+    docked_pdbqt_path = row.get('docked_pdbqt_path', '')
+
+    ligand_path = Path(ligand_pdbqt_path) if ligand_pdbqt_path else None
+    receptor_path = Path(row['receptor_pdbqt_path']) if row.get('receptor_pdbqt_path') else None
+    output_path = Path(docked_pdbqt_path) if docked_pdbqt_path else None
+
+    # Compute expected log path (output_dir/log/ligand_stem.log)
+    if output_path and ligand_path:
+        docking_log_path = str(output_path.parent / "log" / f"{ligand_path.stem}.log")
+    else:
+        docking_log_path = ''
+
+    # Base result with identifying info and paths
+    base_result = {
+        'compound_key': compound_key,
+        'ligand_id': ligand_id,
+        'ligand_pdbqt_path': ligand_pdbqt_path,
+        'docked_pdbqt_path': docked_pdbqt_path,
+        'docking_log_path': docking_log_path,
+    }
 
     # Skip if already exists
-    if output_path.exists():
+    if output_path and output_path.exists():
         # Try to extract score from existing file
         try:
             with open(output_path) as f:
@@ -168,25 +197,30 @@ def process_item(row: dict, config: dict, targets_config: dict) -> dict:
             score = None
 
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': True,
-            'score': score,
             'skipped': True,
+            'score': score,
+            'error': '',
         }
 
     # Validate inputs exist
-    if not ligand_path.exists():
+    if not ligand_path or not ligand_path.exists():
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': False,
-            'error': f"Ligand not found: {ligand_path}",
+            'skipped': False,
+            'score': None,
+            'error': f"Ligand not found: {ligand_pdbqt_path}",
         }
 
-    if not receptor_path.exists():
+    if not receptor_path or not receptor_path.exists():
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': False,
-            'error': f"Receptor not found: {receptor_path}",
+            'skipped': False,
+            'score': None,
+            'error': f"Receptor not found: {row.get('receptor_pdbqt_path', '')}",
         }
 
     try:
@@ -224,15 +258,19 @@ def process_item(row: dict, config: dict, targets_config: dict) -> dict:
         )
 
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': success,
+            'skipped': False,
             'score': score,
+            'error': '' if success else 'Docking failed - no output file created',
         }
 
     except Exception as e:
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': False,
+            'skipped': False,
+            'score': None,
             'error': str(e),
         }
 

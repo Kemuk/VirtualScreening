@@ -1,21 +1,31 @@
 #!/bin/bash
 #
-# run_stage.sh - Convenience script for running pipeline stages
+# run_stage.sh - Submit pipeline stages with SLURM job dependencies
 #
 # Usage:
 #   ./run_stage.sh                              # Run all stages (production)
 #   ./run_stage.sh --stage docking             # Run specific stage
 #   ./run_stage.sh --stage docking,conversion  # Run multiple stages
 #   ./run_stage.sh --devel                     # Run with devel settings
-#   ./run_stage.sh --stage docking --wait      # Wait for completion
+#
+# Jobs are chained with dependencies - you can disconnect after submission.
+# Monitor with: squeue -u $USER
 #
 
-set -e
+set -euo pipefail
+
+# Get absolute project directory (where this script is run from)
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PROJECT_DIR
+
+# Change to project directory
+cd "${PROJECT_DIR}"
+
+echo "Project directory: ${PROJECT_DIR}"
 
 # Default settings
 STAGES="ligands,docking,conversion,aev_infer"
 DEVEL=false
-WAIT=false
 PREPARE_ONLY=false
 UPDATE_ONLY=false
 
@@ -29,18 +39,31 @@ DEVEL_MAX_ITEMS=1000
 DEVEL_PARTITION="devel"
 DEVEL_TIME="00:10:00"
 
-# Stage-specific settings
-declare -A STAGE_PARTITION
-STAGE_PARTITION[ligands]="arc"
-STAGE_PARTITION[docking]="htc"
-STAGE_PARTITION[conversion]="arc"
-STAGE_PARTITION[aev_infer]="htc"
+# Update manifest job settings (runs on arc cluster, short partition)
+UPDATE_CLUSTER="arc"
+UPDATE_PARTITION="short"
+UPDATE_TIME="00:30:00"
+
+# Stage-specific settings (htc and arc are clusters, not partitions)
+declare -A STAGE_CLUSTER
+STAGE_CLUSTER[ligands]="arc"
+STAGE_CLUSTER[docking]="htc"
+STAGE_CLUSTER[conversion]="arc"
+STAGE_CLUSTER[aev_infer]="htc"
 
 declare -A STAGE_TIME
 STAGE_TIME[ligands]="01:00:00"
 STAGE_TIME[docking]="02:00:00"
 STAGE_TIME[conversion]="01:00:00"
 STAGE_TIME[aev_infer]="02:00:00"
+
+# Resolve conda environment for PYTHON_BIN
+if [[ -n "${DATA:-}" ]]; then
+    CONPREFIX="$(readlink -f "${DATA}/snakemake_env")"
+else
+    CONPREFIX="$(readlink -f "${PROJECT_DIR}/../snakemake_env")"
+fi
+PYTHON_BIN="${CONPREFIX}/bin/python"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -61,10 +84,6 @@ while [[ $# -gt 0 ]]; do
             PROD_MAX_ITEMS="$2"
             shift 2
             ;;
-        --wait)
-            WAIT=true
-            shift
-            ;;
         --prepare-only)
             PREPARE_ONLY=true
             shift
@@ -82,10 +101,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --devel            Use devel settings (1000 items, 5 chunks, devel partition)"
             echo "  --chunks N         Number of chunks (default: 500 for prod, 5 for devel)"
             echo "  --max-items N      Max items to process (default: unlimited for prod, 1000 for devel)"
-            echo "  --wait             Wait for jobs to complete before moving to next stage"
             echo "  --prepare-only     Only run prepare_stage.py, don't submit"
-            echo "  --update-only      Only run update_manifest.py"
+            echo "  --update-only      Only run update_manifest.py (no job submission)"
             echo "  --help             Show this help"
+            echo ""
+            echo "Jobs are chained with dependencies. You can disconnect after submission."
+            echo "Monitor with: squeue -u \$USER"
             exit 0
             ;;
         *)
@@ -99,6 +120,8 @@ done
 if [ "$DEVEL" = true ]; then
     CHUNKS=$DEVEL_CHUNKS
     MAX_ITEMS=$DEVEL_MAX_ITEMS
+    UPDATE_PARTITION=$DEVEL_PARTITION
+    UPDATE_TIME=$DEVEL_TIME
     echo "=== DEVEL MODE ==="
     echo "  Max items: $MAX_ITEMS"
     echo "  Chunks: $CHUNKS"
@@ -116,6 +139,12 @@ echo ""
 # Convert stages to array
 IFS=',' read -ra STAGE_ARRAY <<< "$STAGES"
 
+# Track submitted jobs for final summary
+declare -a SUBMITTED_JOBS=()
+
+# Track the last update job ID for chaining to next stage
+LAST_UPDATE_JOB_ID=""
+
 # Process each stage
 for STAGE in "${STAGE_ARRAY[@]}"; do
     echo "=========================================="
@@ -125,12 +154,16 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
     # Skip to update if --update-only
     if [ "$UPDATE_ONLY" = true ]; then
         echo "Running update_manifest.py..."
-        python -m workflow.slurm.update_manifest --stage "$STAGE"
+        "${PYTHON_BIN}" -m workflow.slurm.update_manifest --stage "$STAGE" \
+            --manifest "${PROJECT_DIR}/data/master/manifest.parquet" \
+            --results-dir "${PROJECT_DIR}/data/master/results"
         continue
     fi
 
-    # Build prepare command
-    PREPARE_CMD="python -m workflow.slurm.prepare_stage --stage $STAGE --num-chunks $CHUNKS"
+    # Build prepare command with absolute paths
+    PREPARE_CMD="${PYTHON_BIN} -m workflow.slurm.prepare_stage --stage $STAGE --num-chunks $CHUNKS"
+    PREPARE_CMD="$PREPARE_CMD --manifest ${PROJECT_DIR}/data/master/manifest.parquet"
+    PREPARE_CMD="$PREPARE_CMD --output-dir ${PROJECT_DIR}/data/master"
     [ -n "$MAX_ITEMS" ] && PREPARE_CMD="$PREPARE_CMD --max-items $MAX_ITEMS"
 
     echo "Running: $PREPARE_CMD"
@@ -160,66 +193,97 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         continue
     fi
 
-    # Build sbatch command
+    # Build sbatch command for array job
     ARRAY_END=$((ACTUAL_CHUNKS - 1))
-    SBATCH_CMD="sbatch --array=0-$ARRAY_END"
+    LOG_DIR="${PROJECT_DIR}/data/logs/slurm"
+    mkdir -p "${LOG_DIR}"
 
-    if [ "$DEVEL" = true ]; then
-        SBATCH_CMD="$SBATCH_CMD --partition=$DEVEL_PARTITION --time=$DEVEL_TIME"
-    else
-        SBATCH_CMD="$SBATCH_CMD --partition=${STAGE_PARTITION[$STAGE]} --time=${STAGE_TIME[$STAGE]}"
+    SBATCH_CMD="sbatch --parsable --array=0-$ARRAY_END"
+    SBATCH_CMD="$SBATCH_CMD --output=${LOG_DIR}/${STAGE}_%A_%a.out"
+    SBATCH_CMD="$SBATCH_CMD --error=${LOG_DIR}/${STAGE}_%A_%a.err"
+    SBATCH_CMD="$SBATCH_CMD --export=ALL,PROJECT_DIR=${PROJECT_DIR},NUM_CHUNKS=${ACTUAL_CHUNKS}"
+
+    # Add dependency on previous stage's update job if exists
+    if [ -n "$LAST_UPDATE_JOB_ID" ]; then
+        SBATCH_CMD="$SBATCH_CMD --dependency=afterok:${LAST_UPDATE_JOB_ID}"
     fi
 
-    SBATCH_CMD="$SBATCH_CMD workflow/slurm/${STAGE}.slurm"
+    # Add cluster and partition settings
+    # htc/arc are clusters, devel is a partition within each cluster
+    if [ "$DEVEL" = true ]; then
+        SBATCH_CMD="$SBATCH_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --partition=$DEVEL_PARTITION --time=$DEVEL_TIME"
+    else
+        SBATCH_CMD="$SBATCH_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --time=${STAGE_TIME[$STAGE]}"
+    fi
+
+    SBATCH_CMD="$SBATCH_CMD ${PROJECT_DIR}/workflow/slurm/${STAGE}.slurm"
 
     echo ""
-    echo "Submitting: $SBATCH_CMD"
+    echo "Submitting array job: $SBATCH_CMD"
 
-    # Submit and capture job ID
-    SUBMIT_OUTPUT=$($SBATCH_CMD)
-    echo "$SUBMIT_OUTPUT"
+    # Submit array job and capture job ID
+    # --parsable returns "JOBID;CLUSTER", extract just the JOBID
+    ARRAY_JOB_RAW=$($SBATCH_CMD)
+    ARRAY_JOB_ID="${ARRAY_JOB_RAW%%;*}"  # Remove ;cluster suffix
 
-    JOB_ID=$(echo "$SUBMIT_OUTPUT" | grep -oP 'Submitted batch job \K\d+')
-
-    if [ -z "$JOB_ID" ]; then
-        echo "ERROR: Could not extract job ID"
+    if [ -z "$ARRAY_JOB_ID" ]; then
+        echo "ERROR: Could not extract array job ID"
         exit 1
     fi
 
-    echo "Job ID: $JOB_ID"
+    echo "  Array job ID: $ARRAY_JOB_ID (raw: $ARRAY_JOB_RAW)"
+    SUBMITTED_JOBS+=("${STAGE}_array:${ARRAY_JOB_ID}")
 
-    # Wait for completion if requested
-    if [ "$WAIT" = true ]; then
-        echo ""
-        echo "Waiting for job $JOB_ID to complete..."
-
-        while true; do
-            # Check if any jobs still running
-            RUNNING=$(squeue -j "$JOB_ID" -h 2>/dev/null | wc -l)
-
-            if [ "$RUNNING" -eq 0 ]; then
-                echo "Job $JOB_ID completed"
-                break
-            fi
-
-            echo "  $RUNNING tasks still running..."
-            sleep 30
-        done
-
-        # Run update_manifest
-        echo ""
-        echo "Running update_manifest.py..."
-        python -m workflow.slurm.update_manifest --stage "$STAGE"
+    # Submit update_manifest job with dependency on array job
+    # Must run on same cluster as array job for dependency to work
+    UPDATE_CMD="sbatch --parsable"
+    UPDATE_CMD="$UPDATE_CMD --dependency=afterok:${ARRAY_JOB_ID}"
+    UPDATE_CMD="$UPDATE_CMD --output=${LOG_DIR}/update_${STAGE}_%j.out"
+    UPDATE_CMD="$UPDATE_CMD --error=${LOG_DIR}/update_${STAGE}_%j.err"
+    UPDATE_CMD="$UPDATE_CMD --export=ALL,PROJECT_DIR=${PROJECT_DIR},STAGE=${STAGE}"
+    # Run on same cluster as the array job to avoid cross-cluster dependency issues
+    if [ "$DEVEL" = true ]; then
+        UPDATE_CMD="$UPDATE_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --partition=${DEVEL_PARTITION} --time=${DEVEL_TIME}"
     else
-        echo ""
-        echo "Job submitted. Run these commands after completion:"
-        echo "  squeue -j $JOB_ID                           # check status"
-        echo "  python -m workflow.slurm.update_manifest --stage $STAGE  # update manifest"
+        UPDATE_CMD="$UPDATE_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --partition=${UPDATE_PARTITION} --time=${UPDATE_TIME}"
     fi
+    UPDATE_CMD="$UPDATE_CMD ${PROJECT_DIR}/workflow/slurm/update_manifest.slurm"
+
+    echo "Submitting update job: $UPDATE_CMD"
+
+    # --parsable returns "JOBID;CLUSTER", extract just the JOBID
+    UPDATE_JOB_RAW=$($UPDATE_CMD)
+    UPDATE_JOB_ID="${UPDATE_JOB_RAW%%;*}"  # Remove ;cluster suffix
+
+    if [ -z "$UPDATE_JOB_ID" ]; then
+        echo "ERROR: Could not extract update job ID"
+        exit 1
+    fi
+
+    echo "  Update job ID: $UPDATE_JOB_ID (depends on $ARRAY_JOB_ID)"
+    SUBMITTED_JOBS+=("${STAGE}_update:${UPDATE_JOB_ID}")
+
+    # Save for next stage's dependency
+    LAST_UPDATE_JOB_ID="$UPDATE_JOB_ID"
 
     echo ""
 done
 
+# Final summary
 echo "=========================================="
-echo "Done!"
+echo "ALL JOBS SUBMITTED"
+echo "=========================================="
+echo ""
+echo "Submitted jobs:"
+for JOB in "${SUBMITTED_JOBS[@]}"; do
+    echo "  $JOB"
+done
+echo ""
+echo "You can now disconnect. Jobs will run automatically."
+echo ""
+echo "Monitor with:"
+echo "  squeue -u \$USER"
+echo "  sacct -j <job_id> --format=JobID,State,ExitCode,Elapsed"
+echo ""
+echo "Check logs in: ${LOG_DIR}/"
 echo "=========================================="
