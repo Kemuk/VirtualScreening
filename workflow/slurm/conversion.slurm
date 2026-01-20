@@ -2,7 +2,7 @@
 #SBATCH --job-name=conversion
 #SBATCH --output=data/logs/slurm/conversion_%A_%a.out
 #SBATCH --error=data/logs/slurm/conversion_%A_%a.err
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=4G
 #SBATCH --partition=arc
 #SBATCH --cpus-per-task=2

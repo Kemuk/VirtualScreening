@@ -2,7 +2,7 @@
 #SBATCH --job-name=ligands
 #SBATCH --output=data/logs/slurm/ligands_%A_%a.out
 #SBATCH --error=data/logs/slurm/ligands_%A_%a.err
-#SBATCH --time=02:00:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=8G
 #SBATCH --partition=arc
 #SBATCH --cpus-per-task=4

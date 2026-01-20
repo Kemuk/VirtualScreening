@@ -6,6 +6,7 @@ Filter manifest to pending items for a stage and write subset parquet.
 
 Usage:
     python -m workflow.slurm.prepare_stage --stage docking --num-chunks 500
+    python -m workflow.slurm.prepare_stage --stage docking --max-items 1000 --num-chunks 5  # devel
 
 Output:
     - data/master/pending/docking.parquet (filtered subset)
@@ -75,6 +76,7 @@ def prepare_stage(
     stage: str,
     num_chunks: int,
     output_dir: Path,
+    max_items: int = None,
 ) -> Path:
     """
     Prepare stage by filtering manifest and writing pending subset.
@@ -84,6 +86,7 @@ def prepare_stage(
         stage: Stage name
         num_chunks: Number of chunks for array job
         output_dir: Directory for pending parquet files
+        max_items: Maximum items to process (for devel testing)
 
     Returns:
         Path to pending parquet file
@@ -94,6 +97,11 @@ def prepare_stage(
     if len(pending_df) == 0:
         print(f"\nNothing to do - all items complete for stage '{stage}'")
         return None
+
+    # Limit items for devel mode
+    if max_items is not None and len(pending_df) > max_items:
+        pending_df = pending_df.head(max_items)
+        print(f"  Limited to: {max_items:,} items (--max-items)")
 
     # Create output directory
     pending_dir = output_dir / "pending"
@@ -147,6 +155,12 @@ def main():
         help="Number of chunks for array job (default: 500)"
     )
     parser.add_argument(
+        "--max-items",
+        type=int,
+        default=None,
+        help="Maximum items to process (for devel testing)"
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("data/master"),
@@ -166,6 +180,7 @@ def main():
         stage=args.stage,
         num_chunks=args.num_chunks,
         output_dir=args.output_dir,
+        max_items=args.max_items,
     )
 
     if output_path is None:
