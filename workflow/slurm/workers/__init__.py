@@ -32,6 +32,7 @@ STAGE_COLUMNS = {
         'ligand_id',
         'ligand_pdbqt_path',
         'docked_pdbqt_path',
+        'docking_log_path',
         'success',
         'skipped',
         'score',

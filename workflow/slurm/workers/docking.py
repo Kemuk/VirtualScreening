@@ -161,12 +161,19 @@ def process_item(row: dict, config: dict, targets_config: dict) -> dict:
     receptor_path = Path(row['receptor_pdbqt_path']) if row.get('receptor_pdbqt_path') else None
     output_path = Path(docked_pdbqt_path) if docked_pdbqt_path else None
 
+    # Compute expected log path (output_dir/log/ligand_stem.log)
+    if output_path and ligand_path:
+        docking_log_path = str(output_path.parent / "log" / f"{ligand_path.stem}.log")
+    else:
+        docking_log_path = ''
+
     # Base result with identifying info and paths
     base_result = {
         'compound_key': compound_key,
         'ligand_id': ligand_id,
         'ligand_pdbqt_path': ligand_pdbqt_path,
         'docked_pdbqt_path': docked_pdbqt_path,
+        'docking_log_path': docking_log_path,
     }
 
     # Skip if already exists
