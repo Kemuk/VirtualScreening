@@ -222,32 +222,38 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
     echo "Submitting array job: $SBATCH_CMD"
 
     # Submit array job and capture job ID
-    ARRAY_JOB_ID=$($SBATCH_CMD)
+    # --parsable returns "JOBID;CLUSTER", extract just the JOBID
+    ARRAY_JOB_RAW=$($SBATCH_CMD)
+    ARRAY_JOB_ID="${ARRAY_JOB_RAW%%;*}"  # Remove ;cluster suffix
 
     if [ -z "$ARRAY_JOB_ID" ]; then
         echo "ERROR: Could not extract array job ID"
         exit 1
     fi
 
-    echo "  Array job ID: $ARRAY_JOB_ID"
+    echo "  Array job ID: $ARRAY_JOB_ID (raw: $ARRAY_JOB_RAW)"
     SUBMITTED_JOBS+=("${STAGE}_array:${ARRAY_JOB_ID}")
 
     # Submit update_manifest job with dependency on array job
+    # Must run on same cluster as array job for dependency to work
     UPDATE_CMD="sbatch --parsable"
     UPDATE_CMD="$UPDATE_CMD --dependency=afterok:${ARRAY_JOB_ID}"
     UPDATE_CMD="$UPDATE_CMD --output=${LOG_DIR}/update_${STAGE}_%j.out"
     UPDATE_CMD="$UPDATE_CMD --error=${LOG_DIR}/update_${STAGE}_%j.err"
     UPDATE_CMD="$UPDATE_CMD --export=ALL,PROJECT_DIR=${PROJECT_DIR},STAGE=${STAGE}"
+    # Run on same cluster as the array job to avoid cross-cluster dependency issues
     if [ "$DEVEL" = true ]; then
-        UPDATE_CMD="$UPDATE_CMD --clusters=${UPDATE_CLUSTER} --partition=${DEVEL_PARTITION} --time=${DEVEL_TIME}"
+        UPDATE_CMD="$UPDATE_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --partition=${DEVEL_PARTITION} --time=${DEVEL_TIME}"
     else
-        UPDATE_CMD="$UPDATE_CMD --clusters=${UPDATE_CLUSTER} --partition=${UPDATE_PARTITION} --time=${UPDATE_TIME}"
+        UPDATE_CMD="$UPDATE_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --partition=${UPDATE_PARTITION} --time=${UPDATE_TIME}"
     fi
     UPDATE_CMD="$UPDATE_CMD ${PROJECT_DIR}/workflow/slurm/update_manifest.slurm"
 
     echo "Submitting update job: $UPDATE_CMD"
 
-    UPDATE_JOB_ID=$($UPDATE_CMD)
+    # --parsable returns "JOBID;CLUSTER", extract just the JOBID
+    UPDATE_JOB_RAW=$($UPDATE_CMD)
+    UPDATE_JOB_ID="${UPDATE_JOB_RAW%%;*}"  # Remove ;cluster suffix
 
     if [ -z "$UPDATE_JOB_ID" ]; then
         echo "ERROR: Could not extract update job ID"
