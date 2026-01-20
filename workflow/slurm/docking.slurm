@@ -37,11 +37,19 @@ RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
 
-export CONPREFIX=$DATA/snakemake_env
+# Resolve conda environment to absolute path
+# Uses $DATA if set, otherwise falls back to parent of PROJECT_DIR
+if [[ -n "${DATA:-}" ]]; then
+    CONPREFIX="$(readlink -f "${DATA}/snakemake_env")"
+else
+    CONPREFIX="$(readlink -f "${PROJECT_DIR}/../snakemake_env")"
+fi
+export CONPREFIX
 
-# Initialize conda for this shell, then activate environment
-source $(conda info --base)/etc/profile.d/conda.sh
-conda activate $CONPREFIX
+echo "Conda environment: ${CONPREFIX}"
+
+# Activate conda environment using source activate
+source activate "${CONPREFIX}"
 
 export PYTHONUNBUFFERED=1
 
