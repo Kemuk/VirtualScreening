@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 from typing import Optional
 import pandas as pd
+from tqdm import tqdm
 
 
 # SLURM queue limits (cluster or partition key)
@@ -46,6 +47,7 @@ def create_chunks(
     chunk_dir: Path,
     stage: str,
     partition: str = 'arc',
+    max_chunks: Optional[int] = None,
 ) -> int:
     """
     Split items into chunks and write chunk files.
@@ -55,14 +57,19 @@ def create_chunks(
 
     Args:
         items: DataFrame of items to process
-        chunk_dir: Directory to write chunk files
-        stage: Stage name (retained for interface consistency)
+        chunk_dir: Base directory for chunk files
+        stage: Stage name (used for stage-specific subdirectory)
         partition: Queue profile key (determines max array size)
+        max_chunks: Optional override for maximum number of chunks
 
     Returns:
         Number of chunks created
     """
     max_array = PARTITION_CONFIG.get(partition, {}).get('max_array_size', 1000)
+
+    # Apply stage-specific max_chunks limit if provided
+    if max_chunks is not None:
+        max_array = min(max_array, max_chunks)
 
     # Calculate chunk size to stay within array limits
     n_items = len(items)
@@ -72,11 +79,12 @@ def create_chunks(
     n_chunks = min(n_items, max_array)
     chunk_size = (n_items + n_chunks - 1) // n_chunks  # Ceiling division
 
-    # Create chunk directory
-    chunk_dir.mkdir(parents=True, exist_ok=True)
+    # Create stage-specific chunk directory
+    stage_chunks = chunk_dir / stage
+    stage_chunks.mkdir(parents=True, exist_ok=True)
 
-    # Clear old chunk files
-    for old_file in chunk_dir.glob('chunk_*.json'):
+    # Clear old chunk files for this stage only
+    for old_file in stage_chunks.glob('chunk_*.json'):
         old_file.unlink()
 
     # Write chunk files
@@ -85,7 +93,7 @@ def create_chunks(
 
     for i in range(0, n_items, chunk_size):
         chunk_records = records[i:i + chunk_size]
-        chunk_file = chunk_dir / f'chunk_{chunk_id:05d}.json'
+        chunk_file = stage_chunks / f'chunk_{chunk_id:05d}.json'
 
         with open(chunk_file, 'w') as f:
             json.dump(chunk_records, f, indent=2, default=str)
@@ -95,22 +103,37 @@ def create_chunks(
     return chunk_id
 
 
-def read_chunk(chunk_dir: Path, stage: str, chunk_id: int) -> list:
+def read_chunk(chunk_dir: Path, stage: str, chunk_id: int, max_retries: int = 5) -> list:
     """
     Read a chunk file.
 
+    Includes retry logic to handle NFS filesystem caching delays where
+    files written by the orchestrator may not be immediately visible
+    to workers on different nodes.
+
     Args:
         chunk_dir: Base chunk directory
-        stage: Stage name (retained for interface consistency)
+        stage: Stage name (used for stage-specific subdirectory)
         chunk_id: Chunk index (from SLURM_ARRAY_TASK_ID)
+        max_retries: Number of retries with exponential backoff (default 5)
 
     Returns:
         List of item records
     """
-    chunk_file = chunk_dir / f'chunk_{chunk_id:05d}.json'
+    stage_chunks = chunk_dir / stage
+    chunk_file = stage_chunks / f'chunk_{chunk_id:05d}.json'
 
+    # Retry with exponential backoff for NFS caching issues
+    for attempt in range(max_retries):
+        if chunk_file.exists():
+            break
+        if attempt < max_retries - 1:
+            delay = 2 ** attempt  # 1, 2, 4, 8, 16 seconds
+            print(f"Chunk file not found, retrying in {delay}s: {chunk_file}")
+            time.sleep(delay)
+    
     if not chunk_file.exists():
-        raise FileNotFoundError(f"Chunk file not found: {chunk_file}")
+        raise FileNotFoundError(f"Chunk file not found after {max_retries} retries: {chunk_file}")
 
     with open(chunk_file) as f:
         return json.load(f)
@@ -196,11 +219,12 @@ def submit_array(
         cmd.append(f'--cpus-per-task={cpus}')
 
     # Add script and arguments
+    # Note: Pass base results_dir, not stage_results - write_results() adds the stage subdirectory
     cmd.extend([
         str(script_path),
         stage,
         str(chunk_dir),
-        str(stage_results),
+        str(results_dir),
     ])
 
     if config_path:
@@ -336,7 +360,8 @@ def collect_results(results_dir: Path, stage: str) -> list:
     stage_results = results_dir / stage
     all_results = []
 
-    for result_file in sorted(stage_results.glob('result_*.json')):
+    result_files = sorted(stage_results.glob('result_*.json'))
+    for result_file in tqdm(result_files, desc="Collecting results", unit="file"):
         with open(result_file) as f:
             chunk_results = json.load(f)
             all_results.extend(chunk_results)
@@ -383,12 +408,13 @@ def cleanup_stage_files(
         results_dir: Base results directory
         stage: Stage name
     """
-    # Remove chunk files
-    if chunk_dir.exists():
-        for f in chunk_dir.glob('chunk_*.json'):
+    # Remove chunk files for this stage
+    stage_chunks = chunk_dir / stage
+    if stage_chunks.exists():
+        for f in stage_chunks.glob('chunk_*.json'):
             f.unlink()
 
-    # Remove result files
+    # Remove result files for this stage
     stage_results = results_dir / stage
     if stage_results.exists():
         for f in stage_results.glob('result_*.json'):

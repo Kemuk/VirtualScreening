@@ -19,9 +19,10 @@ STAGE="all"
 CLUSTER="arc"
 PARTITION=""
 TIME="24:00:00"      # 24 hours for orchestrator (waits for all stages)
-MEM="16G"
+MEM="64G"            # Needs more memory for collecting large result sets
 CONFIG="config/config.yaml"
 OVERWRITE=""
+MERGE_ONLY=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -52,9 +53,13 @@ while [[ $# -gt 0 ]]; do
             OVERWRITE="--overwrite"
             shift
             ;;
+        --merge-only)
+            MERGE_ONLY="--merge-only"
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--devel] [--stage <stage>] [--partition <part>] [--time HH:MM:SS] [--overwrite]"
+            echo "Usage: $0 [--devel] [--stage <stage>] [--partition <part>] [--time HH:MM:SS] [--overwrite] [--merge-only]"
             exit 1
             ;;
     esac
@@ -77,6 +82,7 @@ echo "Partition: ${PARTITION:-none}"
 echo "Time limit: ${TIME}"
 echo "Devel mode: ${DEVEL:-no}"
 echo "Overwrite: ${OVERWRITE:-no}"
+echo "Merge only: ${MERGE_ONLY:-no}"
 echo "========================================"
 
 # Submit orchestrator job
@@ -95,7 +101,7 @@ JOB_ID=$(sbatch \
     --error="${PROJECT_ROOT}/data/slurm/logs/orchestrator_%j.err" \
     --chdir="${PROJECT_ROOT}" \
     --parsable \
-    --wrap="python -m workflow.slurm.run --stage ${STAGE} ${DEVEL} ${OVERWRITE} --config ${CONFIG}")
+    --wrap="python -m workflow.slurm.run --stage ${STAGE} ${DEVEL} ${OVERWRITE} ${MERGE_ONLY} --config ${CONFIG}")
 
 echo ""
 echo "Submitted orchestrator job: ${JOB_ID}"

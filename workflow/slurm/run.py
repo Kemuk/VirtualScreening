@@ -34,24 +34,28 @@ from .jobs import (
 
 
 # Stage configuration: maps stage name to processing function and resources
+# Light stages use max_chunks=500, heavy stages (docking, aev_*) use max_chunks=1000
 STAGES = {
     'manifest': {
         'function': 'workflow.scripts.create_manifest.process_batch',
         'partition': 'arc',
         'time': 15,  # 15 min per chunk (RDKit canonicalization + file checks)
         'mem': '4G',  # Lower memory per chunk since items are distributed
+        'max_chunks': 500,
     },
     'receptors': {
         'function': 'workflow.scripts.mol2_to_pdbqt.process_batch',
         'partition': 'arc',
         'time': 5,
         'mem': '4G',
+        'max_chunks': 500,
     },
     'ligands': {
         'function': 'workflow.scripts.prepare_all_ligands.process_batch',
         'partition': 'arc',
         'time': 30,
         'mem': '8G',
+        'max_chunks': 500,
     },
     'docking': {
         'function': 'workflow.scripts.dock_vina.process_batch',
@@ -59,18 +63,21 @@ STAGES = {
         'time': 60,
         'mem': '20G',
         'cpus': 8,
+        'max_chunks': 1000,
     },
     'conversion': {
         'function': 'workflow.scripts.pdbqt_to_sdf.process_batch',
         'partition': 'arc',
         'time': 10,
         'mem': '4G',
+        'max_chunks': 500,
     },
     'aev_prep': {
         'function': 'workflow.scripts.prepare_aev_plig_csv.process_batch',
         'partition': 'arc',
         'time': 20,
         'mem': '8G',
+        'max_chunks': 1000,
     },
     'aev_infer': {
         'function': 'workflow.scripts.rescore_aev_plig.process_batch',
@@ -78,18 +85,21 @@ STAGES = {
         'time': 120,
         'mem': '16G',
         'gres': 'gpu:1',
+        'max_chunks': 1000,
     },
     'aev_merge': {
         'function': 'workflow.scripts.update_manifest_aev_plig.process_batch',
         'partition': 'arc',
         'time': 10,
         'mem': '8G',
+        'max_chunks': 1000,
     },
     'results': {
         'function': 'workflow.scripts.compute_results.process_batch',
         'partition': 'arc',
         'time': 30,
         'mem': '16G',
+        'max_chunks': 500,
     },
 }
 
@@ -134,6 +144,7 @@ def run_orchestrator(
     max_items: Optional[int] = None,
     time_limit: Optional[int] = None,
     overwrite: bool = False,
+    merge_only: bool = False,
 ) -> bool:
     """
     Run orchestrator mode: submit and manage SLURM array job.
@@ -145,6 +156,7 @@ def run_orchestrator(
         max_items: Override max items
         time_limit: Override time limit (minutes)
         overwrite: Overwrite existing manifest if it exists
+        merge_only: Skip job submission, just merge existing results (manifest stage only)
 
     Returns:
         True if successful
@@ -196,90 +208,102 @@ def run_orchestrator(
 
     # Special handling for manifest stage - uses array jobs to create manifest
     if stage == 'manifest':
-        if manifest_path.exists():
-            if overwrite:
-                # Backup existing manifest before overwriting
-                backup_dir = manifest_path.parent / "backup"
-                backup_dir.mkdir(parents=True, exist_ok=True)
-                from datetime import datetime
-                import shutil
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = backup_dir / f"manifest_{timestamp}.parquet"
-                shutil.copy2(manifest_path, backup_path)
-                print(f"Backed up existing manifest to: {backup_path}")
-                manifest_path.unlink()
-            else:
-                print(f"Manifest already exists: {manifest_path}")
-                print("To recreate, use --overwrite or delete the existing manifest first.")
-                return True
+        # Handle merge-only mode: skip to Phase 3
+        if merge_only:
+            print("Merge-only mode: skipping job submission, merging existing results...")
+        else:
+            if manifest_path.exists():
+                if overwrite:
+                    # Backup existing manifest before overwriting
+                    backup_dir = manifest_path.parent / "backup"
+                    backup_dir.mkdir(parents=True, exist_ok=True)
+                    from datetime import datetime
+                    import shutil
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = backup_dir / f"manifest_{timestamp}.parquet"
+                    shutil.copy2(manifest_path, backup_path)
+                    print(f"Backed up existing manifest to: {backup_path}")
+                    manifest_path.unlink()
+                else:
+                    print(f"Manifest already exists: {manifest_path}")
+                    print("To recreate, use --overwrite or delete the existing manifest first.")
+                    return True
 
-        print("Creating manifest using array jobs...")
+            print("Creating manifest using array jobs...")
 
-        # Phase 1: Scan items (lightweight, no RDKit)
-        print("\nPhase 1: Scanning SMILES files...")
-        from workflow.scripts.scan_manifest_items import scan_targets
-        targets_path = project_root / config.get('targets_config', 'config/targets.yaml')
-        targets_config = load_config(targets_path)
+            # Phase 1: Scan items (lightweight, no RDKit)
+            print("\nPhase 1: Scanning SMILES files...")
+            from workflow.scripts.scan_manifest_items import scan_targets
+            targets_path = project_root / config.get('targets_config', 'config/targets.yaml')
+            targets_config = load_config(targets_path)
 
-        items = scan_targets(
-            targets_config=targets_config,
-            workflow_config=config,
-            project_root=project_root,
-            max_items=max_items,  # Limits scan for devel mode
-        )
-        print(f"Found {len(items)} items to process")
+            items = scan_targets(
+                targets_config=targets_config,
+                workflow_config=config,
+                project_root=project_root,
+                max_items=max_items,  # Limits scan for devel mode
+            )
+            print(f"Found {len(items)} items to process")
 
-        if len(items) == 0:
-            print("ERROR: No items found. Check your SMILES files.", file=sys.stderr)
-            return False
+            if len(items) == 0:
+                print("ERROR: No items found. Check your SMILES files.", file=sys.stderr)
+                return False
 
-        # Convert to DataFrame for chunking
-        import pandas as pd
-        items_df = pd.DataFrame(items)
+            # Convert to DataFrame for chunking
+            import pandas as pd
+            items_df = pd.DataFrame(items)
 
-        # Phase 2: Create chunks and submit array job
-        print("\nPhase 2: Creating chunks and submitting array job...")
-        queue_profile = partition or stage_config['partition']
-        partition_label = partition or "none"
-        print(f"Cluster: {cluster}, partition: {partition_label}")
+            # Phase 2: Create chunks and submit array job
+            print("\nPhase 2: Creating chunks and submitting array job...")
+            queue_profile = partition or stage_config['partition']
+            partition_label = partition or "none"
+            print(f"Cluster: {cluster}, partition: {partition_label}")
 
-        n_chunks = create_chunks(items_df, chunk_dir, stage, queue_profile)
-        print(f"Created {n_chunks} chunks")
+            n_chunks = create_chunks(
+                items_df, chunk_dir, stage, queue_profile,
+                max_chunks=stage_config.get('max_chunks'),
+            )
+            print(f"Created {n_chunks} chunks")
 
-        # Submit array job
-        job_id = submit_array(
-            stage=stage,
-            n_chunks=n_chunks,
-            cluster=cluster,
-            partition=partition,
-            time_minutes=stage_config['time'],
-            mem=stage_config['mem'],
-            script_path=script_path,
-            chunk_dir=chunk_dir,
-            results_dir=results_dir,
-            logs_dir=logs_dir,
-            gres=stage_config.get('gres'),
-            cpus=stage_config.get('cpus'),
-            config_path=config_path,
-        )
+            # Submit array job
+            job_id = submit_array(
+                stage=stage,
+                n_chunks=n_chunks,
+                cluster=cluster,
+                partition=partition,
+                time_minutes=stage_config['time'],
+                mem=stage_config['mem'],
+                script_path=script_path,
+                chunk_dir=chunk_dir,
+                results_dir=results_dir,
+                logs_dir=logs_dir,
+                gres=stage_config.get('gres'),
+                cpus=stage_config.get('cpus'),
+                config_path=config_path,
+            )
 
-        # Wait for completion
-        print(f"\nWaiting for job {job_id}...")
-        summary = wait_for_job(job_id)
+            # Wait for completion
+            print(f"\nWaiting for job {job_id}...")
+            summary = wait_for_job(job_id)
 
-        print(f"\nJob summary:")
-        print(f"  Total tasks: {summary['total']}")
-        print(f"  Completed: {summary['completed']}")
-        print(f"  Failed: {summary['failed']}")
+            print(f"\nJob summary:")
+            print(f"  Total tasks: {summary['total']}")
+            print(f"  Completed: {summary['completed']}")
+            print(f"  Failed: {summary['failed']}")
 
-        if not summary['success']:
-            print(f"\nERROR: {summary['failed']} tasks failed", file=sys.stderr)
-            return False
+            if not summary['success']:
+                print(f"\nERROR: {summary['failed']} tasks failed", file=sys.stderr)
+                return False
 
         # Phase 3: Build manifest from results
         print("\nPhase 3: Building manifest from results...")
         results = collect_results(results_dir, stage)
         print(f"Collected {len(results)} results")
+
+        if not results:
+            print("ERROR: No results found in results directory", file=sys.stderr)
+            print(f"Expected results in: {results_dir / stage}", file=sys.stderr)
+            return False
 
         # Filter successful results and build manifest
         successful = [r for r in results if r.get('success', True)]
@@ -296,8 +320,9 @@ def run_orchestrator(
         from workflow.scripts.build_manifest import build_manifest
         n_entries = build_manifest(results, manifest_path)
 
-        # Cleanup
-        cleanup_stage_files(chunk_dir, results_dir, stage)
+        # Cleanup (skip in merge-only mode to preserve results for debugging)
+        if not merge_only:
+            cleanup_stage_files(chunk_dir, results_dir, stage)
 
         print(f"\n{'='*60}")
         print(f"Manifest created successfully!")
@@ -333,7 +358,10 @@ def run_orchestrator(
     queue_profile = partition or stage_config['partition']
     partition_label = partition or "none"
     print(f"\nCreating chunks (cluster={cluster}, partition={partition_label})...")
-    n_chunks = create_chunks(items, chunk_dir, stage, queue_profile)
+    n_chunks = create_chunks(
+        items, chunk_dir, stage, queue_profile,
+        max_chunks=stage_config.get('max_chunks'),
+    )
     print(f"Created {n_chunks} chunks")
 
     # Submit array job
@@ -523,6 +551,9 @@ Examples:
   # Custom limits
   python -m workflow.slurm.run --stage docking --max-items 100 --time 5
 
+  # Merge existing results without re-running jobs (manifest stage)
+  python -m workflow.slurm.run --stage manifest --merge-only
+
   # Worker mode (called by SLURM)
   python -m workflow.slurm.run --stage docking --worker --chunk-id 0
 """,
@@ -560,6 +591,11 @@ Examples:
         '--overwrite',
         action='store_true',
         help='Overwrite existing manifest (for manifest stage)',
+    )
+    parser.add_argument(
+        '--merge-only',
+        action='store_true',
+        help='Skip job submission, just merge existing results (manifest stage only)',
     )
 
     # Worker mode arguments
@@ -619,6 +655,7 @@ Examples:
                 max_items=args.max_items,
                 time_limit=args.time,
                 overwrite=args.overwrite,
+                merge_only=args.merge_only,
             )
 
     sys.exit(0 if success else 1)

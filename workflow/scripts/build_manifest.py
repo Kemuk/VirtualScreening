@@ -177,8 +177,9 @@ def build_manifest(results: List[Dict], output_path: Path) -> int:
     df['rescoring_status'] = df['rescoring_status'].astype(bool)
 
     # Convert timestamps (they come as ISO strings from JSON)
-    df['created_at'] = pd.to_datetime(df['created_at'])
-    df['last_updated'] = pd.to_datetime(df['last_updated'])
+    # Use ISO8601 format to handle both with and without microseconds
+    df['created_at'] = pd.to_datetime(df['created_at'], format='ISO8601')
+    df['last_updated'] = pd.to_datetime(df['last_updated'], format='ISO8601')
 
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
