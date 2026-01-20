@@ -37,7 +37,10 @@ include: "rules/common.smk"
 # Global Variables
 # =============================================================================
 
-MANIFEST_PATH = Path(config['manifest_dir']) / 'manifest.parquet'
+# Use mode-specific manifest name (manifest_devel.parquet, manifest_test.parquet, or manifest.parquet)
+_mode = config.get('mode', 'production')
+_manifest_name = f'manifest_{_mode}.parquet' if _mode != 'production' else 'manifest.parquet'
+MANIFEST_PATH = Path(config['manifest_dir']) / _manifest_name
 TARGETS = get_targets()
 
 # =============================================================================
