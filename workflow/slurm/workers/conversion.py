@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
+from tqdm import tqdm
 
 from workflow.slurm.workers import read_slice, write_results
 
@@ -182,9 +183,9 @@ def process_slice(
 
     print(f"Task {task_id}: Processing {len(df)} conversions")
 
-    # Process each item
+    # Process each item with progress bar
     results = []
-    for _, row in df.iterrows():
+    for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Task {task_id}"):
         result = process_item(row.to_dict(), model_index)
         results.append(result)
 

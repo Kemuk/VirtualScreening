@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 import yaml
+from tqdm import tqdm
 
 from workflow.slurm.workers import read_slice, write_results
 
@@ -41,7 +42,7 @@ def prepare_aev_plig_csv(df: pd.DataFrame, output_path: Path) -> int:
         Number of rows written
     """
     rows = []
-    for _, row in df.iterrows():
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Preparing CSV"):
         sdf_path = Path(row['docked_sdf_path'])
         pdb_path = Path(row.get('receptor_pdb_path', ''))
 

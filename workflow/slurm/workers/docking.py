@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import yaml
+from tqdm import tqdm
 
 from workflow.slurm.workers import read_slice, write_results
 
@@ -273,15 +274,11 @@ def process_slice(
 
     print(f"Task {task_id}: Processing {len(df)} docking jobs")
 
-    # Process each item
+    # Process each item with progress bar
     results = []
-    for idx, (_, row) in enumerate(df.iterrows()):
+    for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Task {task_id}"):
         result = process_item(row.to_dict(), config, targets_config)
         results.append(result)
-
-        # Progress every 100 items
-        if (idx + 1) % 100 == 0:
-            print(f"Task {task_id}: {idx + 1}/{len(df)} completed")
 
     # Write results
     output_path = write_results(results, results_dir, 'docking', task_id)
