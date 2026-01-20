@@ -9,7 +9,7 @@ Usage:
 
 Input:
     - data/master/manifest.parquet
-    - data/master/results/{stage}_*.csv
+    - data/master/results/{stage}/chunk_*.csv
 
 Output:
     - data/master/manifest.parquet (updated)
@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from workflow.slurm.stage_config import get_stage_config, list_stages
@@ -37,11 +38,20 @@ def load_results(results_dir: Path, stage: str) -> pd.DataFrame:
     Returns:
         DataFrame with all results
     """
-    pattern = f"{stage}_*.csv"
-    result_files = sorted(results_dir.glob(pattern))
+    # Results are organized in stage-specific subdirectories
+    stage_dir = results_dir / stage
+    pattern = "chunk_*.csv"
+    result_files = sorted(stage_dir.glob(pattern)) if stage_dir.exists() else []
+
+    # Fallback: check old flat structure for backwards compatibility
+    if not result_files:
+        old_pattern = f"{stage}_*.csv"
+        result_files = sorted(results_dir.glob(old_pattern))
+        if result_files:
+            print(f"Found results in legacy location: {results_dir / old_pattern}")
 
     if not result_files:
-        print(f"No result files found matching: {results_dir / pattern}")
+        print(f"No result files found matching: {stage_dir / pattern}")
         return pd.DataFrame()
 
     print(f"Found {len(result_files)} result files")
@@ -140,9 +150,15 @@ def update_manifest(
                 manifest.loc[mask, score_col] = manifest.loc[mask, 'compound_key'].apply(get_score)
                 print(f"  Updated {score_col}: {mask.sum():,} rows")
 
-            # Atomic write
+            # Atomic write using pyarrow for compatibility
             temp_path = manifest_path.with_suffix('.tmp')
-            manifest.to_parquet(temp_path, index=False)
+            table = pa.Table.from_pandas(manifest, preserve_index=False)
+            pq.write_table(
+                table,
+                temp_path,
+                use_dictionary=False,
+                write_statistics=False,
+            )
             temp_path.rename(manifest_path)
 
             print(f"\nManifest updated: {manifest_path}")

@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from workflow.slurm.stage_config import get_stage_config, list_stages
@@ -53,16 +54,21 @@ def filter_pending(
     if status_col:
         df = df[df[status_col] == False]
 
-    # For stages without status column, check file existence
+    # Check file existence requirement (e.g., conversion needs SDF to not exist,
+    # aev_infer needs SDF to exist)
     check_file = config.get('check_file_column')
-    if check_file and not status_col:
-        # Filter to items where file doesn't exist
-        def file_missing(path_str):
+    if check_file:
+        def file_exists(path_str):
             if pd.isna(path_str) or not path_str:
-                return True
-            return not Path(path_str).exists()
+                return False
+            return Path(path_str).exists()
 
-        df = df[df[check_file].apply(file_missing)]
+        if status_col:
+            # Stage has status column: require file to EXIST (e.g., aev_infer needs SDF)
+            df = df[df[check_file].apply(file_exists)]
+        else:
+            # Stage without status column: require file to NOT exist (e.g., conversion)
+            df = df[~df[check_file].apply(file_exists)]
 
     print(f"Stage: {stage} ({config['description']})")
     print(f"  Total in manifest: {original_count:,}")
@@ -107,9 +113,16 @@ def prepare_stage(
     pending_dir = output_dir / "pending"
     pending_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write pending parquet
+    # Write pending parquet using pyarrow directly for compatibility
+    # This avoids "Repetition level histogram size mismatch" errors
     output_path = pending_dir / f"{stage}.parquet"
-    pending_df.to_parquet(output_path, index=False)
+    table = pa.Table.from_pandas(pending_df, preserve_index=False)
+    pq.write_table(
+        table,
+        output_path,
+        use_dictionary=False,  # Avoid dict encoding issues
+        write_statistics=False,  # Avoid histogram issues
+    )
 
     print(f"\nWrote: {output_path}")
     print(f"  Rows: {len(pending_df):,}")
