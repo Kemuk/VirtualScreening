@@ -9,15 +9,24 @@
 
 # Docking worker SLURM script
 # Usage: sbatch --array=0-499 workflow/slurm/docking.slurm
+#
+# Note: run_stage.sh passes PROJECT_DIR and overrides --output/--error paths
 
-# Configuration - adjust these as needed
-NUM_CHUNKS=${SLURM_ARRAY_TASK_COUNT:-500}
-PENDING_FILE="data/master/pending/docking.parquet"
-CONFIG_FILE="config/config.yaml"
-RESULTS_DIR="data/master/results"
+set -euo pipefail
+set -x
+
+# Project directory (must be set by run_stage.sh or fallback to SLURM_SUBMIT_DIR)
+PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
+cd "${PROJECT_DIR}"
+
+# Configuration - all paths relative to PROJECT_DIR
+NUM_CHUNKS=${NUM_CHUNKS:-${SLURM_ARRAY_TASK_COUNT:-500}}
+PENDING_FILE="${PROJECT_DIR}/data/master/pending/docking.parquet"
+CONFIG_FILE="${PROJECT_DIR}/config/config.yaml"
+RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 
 # Create log directory
-mkdir -p data/logs/slurm
+mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
 # Load required modules (adjust for your cluster)
 module load Boost/1.79.0-GCC-11.3.0 2>/dev/null || true
@@ -30,15 +39,13 @@ source activate snakemake_env 2>/dev/null || conda activate snakemake_env 2>/dev
 echo "=========================================="
 echo "Docking Worker"
 echo "=========================================="
+echo "Project dir: ${PROJECT_DIR}"
 echo "Task ID: ${SLURM_ARRAY_TASK_ID}"
 echo "Num chunks: ${NUM_CHUNKS}"
 echo "Pending file: ${PENDING_FILE}"
 echo "Hostname: $(hostname)"
 echo "GPU: ${CUDA_VISIBLE_DEVICES:-none}"
 echo "=========================================="
-
-# Change to project directory
-cd "${SLURM_SUBMIT_DIR:-/home/user/VirtualScreening}"
 
 # Run worker
 python -m workflow.slurm.workers.docking \

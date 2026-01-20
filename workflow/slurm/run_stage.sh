@@ -10,7 +10,17 @@
 #   ./run_stage.sh --stage docking --wait      # Wait for completion
 #
 
-set -e
+set -euo pipefail
+set -x
+
+# Get absolute project directory (where this script is run from)
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PROJECT_DIR
+
+# Change to project directory
+cd "${PROJECT_DIR}"
+
+echo "Project directory: ${PROJECT_DIR}"
 
 # Default settings
 STAGES="ligands,docking,conversion,aev_infer"
@@ -125,12 +135,16 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
     # Skip to update if --update-only
     if [ "$UPDATE_ONLY" = true ]; then
         echo "Running update_manifest.py..."
-        python -m workflow.slurm.update_manifest --stage "$STAGE"
+        python -m workflow.slurm.update_manifest --stage "$STAGE" \
+            --manifest "${PROJECT_DIR}/data/master/manifest.parquet" \
+            --results-dir "${PROJECT_DIR}/data/master/results"
         continue
     fi
 
-    # Build prepare command
+    # Build prepare command with absolute paths
     PREPARE_CMD="python -m workflow.slurm.prepare_stage --stage $STAGE --num-chunks $CHUNKS"
+    PREPARE_CMD="$PREPARE_CMD --manifest ${PROJECT_DIR}/data/master/manifest.parquet"
+    PREPARE_CMD="$PREPARE_CMD --output-dir ${PROJECT_DIR}/data/master"
     [ -n "$MAX_ITEMS" ] && PREPARE_CMD="$PREPARE_CMD --max-items $MAX_ITEMS"
 
     echo "Running: $PREPARE_CMD"
@@ -160,9 +174,15 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         continue
     fi
 
-    # Build sbatch command
+    # Build sbatch command with absolute paths
     ARRAY_END=$((ACTUAL_CHUNKS - 1))
+    LOG_DIR="${PROJECT_DIR}/data/logs/slurm"
+    mkdir -p "${LOG_DIR}"
+
     SBATCH_CMD="sbatch --array=0-$ARRAY_END"
+    SBATCH_CMD="$SBATCH_CMD --output=${LOG_DIR}/${STAGE}_%A_%a.out"
+    SBATCH_CMD="$SBATCH_CMD --error=${LOG_DIR}/${STAGE}_%A_%a.err"
+    SBATCH_CMD="$SBATCH_CMD --export=ALL,PROJECT_DIR=${PROJECT_DIR},NUM_CHUNKS=${ACTUAL_CHUNKS}"
 
     if [ "$DEVEL" = true ]; then
         SBATCH_CMD="$SBATCH_CMD --partition=$DEVEL_PARTITION --time=$DEVEL_TIME"
@@ -170,7 +190,7 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         SBATCH_CMD="$SBATCH_CMD --partition=${STAGE_PARTITION[$STAGE]} --time=${STAGE_TIME[$STAGE]}"
     fi
 
-    SBATCH_CMD="$SBATCH_CMD workflow/slurm/${STAGE}.slurm"
+    SBATCH_CMD="$SBATCH_CMD ${PROJECT_DIR}/workflow/slurm/${STAGE}.slurm"
 
     echo ""
     echo "Submitting: $SBATCH_CMD"
@@ -209,12 +229,14 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         # Run update_manifest
         echo ""
         echo "Running update_manifest.py..."
-        python -m workflow.slurm.update_manifest --stage "$STAGE"
+        python -m workflow.slurm.update_manifest --stage "$STAGE" \
+            --manifest "${PROJECT_DIR}/data/master/manifest.parquet" \
+            --results-dir "${PROJECT_DIR}/data/master/results"
     else
         echo ""
         echo "Job submitted. Run these commands after completion:"
         echo "  squeue -j $JOB_ID                           # check status"
-        echo "  python -m workflow.slurm.update_manifest --stage $STAGE  # update manifest"
+        echo "  python -m workflow.slurm.update_manifest --stage $STAGE --manifest ${PROJECT_DIR}/data/master/manifest.parquet --results-dir ${PROJECT_DIR}/data/master/results  # update manifest"
     fi
 
     echo ""
