@@ -4,6 +4,7 @@
 #SBATCH --error=data/logs/slurm/docking_%A_%a.err
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
+#SBATCH --cpus-per-task=2
 #SBATCH --partition=htc
 #SBATCH --gres=gpu:1
 
