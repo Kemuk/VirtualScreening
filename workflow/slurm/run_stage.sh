@@ -11,7 +11,6 @@
 #
 
 set -euo pipefail
-set -x
 
 # Get absolute project directory (where this script is run from)
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
