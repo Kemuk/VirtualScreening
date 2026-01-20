@@ -160,10 +160,9 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
     echo ""
     echo "Waiting for job $JOB_ID to complete..."
 
-    # Poll until job completes
+    # Poll until job completes - query specific cluster to avoid multi-line output issues
     while true; do
-        # Check job status across all clusters
-        RUNNING=$(squeue -j "$JOB_ID" -h -M all 2>/dev/null | wc -l || echo "0")
+        RUNNING=$(squeue -j "$JOB_ID" -h --clusters=${STAGE_CLUSTER[$STAGE]} 2>/dev/null | wc -l || echo "0")
 
         if [ "$RUNNING" -eq 0 ]; then
             echo "Job $JOB_ID completed at $(date)"
