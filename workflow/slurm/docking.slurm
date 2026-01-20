@@ -39,7 +39,8 @@ mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
 export CONPREFIX=$DATA/snakemake_env
 
-# Activate conda environment
+# Initialize conda for this shell, then activate environment
+source $(conda info --base)/etc/profile.d/conda.sh
 conda activate $CONPREFIX
 
 export PYTHONUNBUFFERED=1
