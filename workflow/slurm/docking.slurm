@@ -36,8 +36,11 @@ RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 # Create log directory
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
+
+export CONPREFIX=$DATA/snakemake_env
+
 # Activate conda environment
-source activate snakemake_env
+conda activate $CONPREFIX
 
 export PYTHONUNBUFFERED=1
 
