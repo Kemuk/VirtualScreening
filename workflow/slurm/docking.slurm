@@ -30,8 +30,10 @@ RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
 # Load required modules (adjust for your cluster)
-module load Boost/1.77.0-GCC-11.3.0 2>/dev/null || true
-module load CUDA/11.7.0 2>/dev/null || true
+module purge
+module load Anaconda3
+module load Boost/1.77.0-GCC-11.3.0
+module load CUDA/11.7.0
 
 # Activate conda environment
 source activate snakemake_env 2>/dev/null || conda activate snakemake_env 2>/dev/null || true
