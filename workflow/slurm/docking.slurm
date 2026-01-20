@@ -16,6 +16,13 @@
 set -euo pipefail
 set -x
 
+ulimit -s unlimited || true
+
+# Load required modules (matching submit_gpu.slurm)
+module purge || true
+module load Anaconda3 || true
+module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
+
 # Project directory (must be set by run_stage.sh or fallback to SLURM_SUBMIT_DIR)
 PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 cd "${PROJECT_DIR}"
@@ -29,14 +36,10 @@ RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 # Create log directory
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
-# Load required modules (adjust for your cluster)
-module purge
-module load Anaconda3
-module load Boost/1.77.0-GCC-11.3.0
-module load CUDA/11.7.0
-
 # Activate conda environment
-source activate snakemake_env 2>/dev/null || conda activate snakemake_env 2>/dev/null || true
+conda activate snakemake_env
+
+export PYTHONUNBUFFERED=1
 
 # Print job info
 echo "=========================================="
