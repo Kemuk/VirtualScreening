@@ -13,6 +13,7 @@
 # Note: run_stage.sh passes PROJECT_DIR and overrides --output/--error paths
 
 set -euo pipefail
+set -x
 
 # Project directory (must be set by run_stage.sh or fallback to SLURM_SUBMIT_DIR)
 PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
