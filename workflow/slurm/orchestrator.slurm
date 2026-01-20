@@ -3,7 +3,7 @@
 #SBATCH --output=data/logs/slurm/orchestrator_%j.out
 #SBATCH --error=data/logs/slurm/orchestrator_%j.err
 #SBATCH --time=24:00:00
-#SBATCH --mem=4G
+#SBATCH --mem=16G
 #SBATCH --cpus-per-task=1
 #SBATCH --clusters=arc
 #SBATCH --partition=short
