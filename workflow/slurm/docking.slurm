@@ -47,9 +47,8 @@ fi
 export CONPREFIX
 
 echo "Conda environment: ${CONPREFIX}"
-
-# Activate conda environment using source activate
-source activate "${CONPREFIX}"
+PYTHON_BIN="${CONPREFIX}/bin/python"
+echo "Python binary: ${PYTHON_BIN}"
 
 export PYTHONUNBUFFERED=1
 
@@ -65,8 +64,8 @@ echo "Hostname: $(hostname)"
 echo "GPU: ${CUDA_VISIBLE_DEVICES:-none}"
 echo "=========================================="
 
-# Run worker
-python -m workflow.slurm.workers.docking \
+# Run worker using explicit python path
+"${PYTHON_BIN}" -m workflow.slurm.workers.docking \
     --pending "${PENDING_FILE}" \
     --task-id "${SLURM_ARRAY_TASK_ID}" \
     --num-chunks "${NUM_CHUNKS}" \
