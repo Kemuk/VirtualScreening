@@ -4,7 +4,7 @@
 #SBATCH --error=data/logs/slurm/conversion_%A_%a.err
 #SBATCH --time=01:00:00
 #SBATCH --mem=4G
-#SBATCH --partition=arc
+#SBATCH --clusters=arc
 #SBATCH --cpus-per-task=2
 
 # Conversion worker SLURM script (PDBQT to SDF)

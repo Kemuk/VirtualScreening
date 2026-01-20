@@ -39,16 +39,17 @@ DEVEL_MAX_ITEMS=1000
 DEVEL_PARTITION="devel"
 DEVEL_TIME="00:10:00"
 
-# Update manifest job settings
+# Update manifest job settings (runs on arc cluster, short partition)
+UPDATE_CLUSTER="arc"
 UPDATE_PARTITION="short"
 UPDATE_TIME="00:30:00"
 
-# Stage-specific settings
-declare -A STAGE_PARTITION
-STAGE_PARTITION[ligands]="arc"
-STAGE_PARTITION[docking]="htc"
-STAGE_PARTITION[conversion]="arc"
-STAGE_PARTITION[aev_infer]="htc"
+# Stage-specific settings (htc and arc are clusters, not partitions)
+declare -A STAGE_CLUSTER
+STAGE_CLUSTER[ligands]="arc"
+STAGE_CLUSTER[docking]="htc"
+STAGE_CLUSTER[conversion]="arc"
+STAGE_CLUSTER[aev_infer]="htc"
 
 declare -A STAGE_TIME
 STAGE_TIME[ligands]="01:00:00"
@@ -207,10 +208,12 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         SBATCH_CMD="$SBATCH_CMD --dependency=afterok:${LAST_UPDATE_JOB_ID}"
     fi
 
+    # Add cluster and partition settings
+    # htc/arc are clusters, devel is a partition within each cluster
     if [ "$DEVEL" = true ]; then
-        SBATCH_CMD="$SBATCH_CMD --partition=$DEVEL_PARTITION --time=$DEVEL_TIME"
+        SBATCH_CMD="$SBATCH_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --partition=$DEVEL_PARTITION --time=$DEVEL_TIME"
     else
-        SBATCH_CMD="$SBATCH_CMD --partition=${STAGE_PARTITION[$STAGE]} --time=${STAGE_TIME[$STAGE]}"
+        SBATCH_CMD="$SBATCH_CMD --clusters=${STAGE_CLUSTER[$STAGE]} --time=${STAGE_TIME[$STAGE]}"
     fi
 
     SBATCH_CMD="$SBATCH_CMD ${PROJECT_DIR}/workflow/slurm/${STAGE}.slurm"
@@ -235,7 +238,11 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
     UPDATE_CMD="$UPDATE_CMD --output=${LOG_DIR}/update_${STAGE}_%j.out"
     UPDATE_CMD="$UPDATE_CMD --error=${LOG_DIR}/update_${STAGE}_%j.err"
     UPDATE_CMD="$UPDATE_CMD --export=ALL,PROJECT_DIR=${PROJECT_DIR},STAGE=${STAGE}"
-    UPDATE_CMD="$UPDATE_CMD --partition=${UPDATE_PARTITION} --time=${UPDATE_TIME}"
+    if [ "$DEVEL" = true ]; then
+        UPDATE_CMD="$UPDATE_CMD --clusters=${UPDATE_CLUSTER} --partition=${DEVEL_PARTITION} --time=${DEVEL_TIME}"
+    else
+        UPDATE_CMD="$UPDATE_CMD --clusters=${UPDATE_CLUSTER} --partition=${UPDATE_PARTITION} --time=${UPDATE_TIME}"
+    fi
     UPDATE_CMD="$UPDATE_CMD ${PROJECT_DIR}/workflow/slurm/update_manifest.slurm"
 
     echo "Submitting update job: $UPDATE_CMD"

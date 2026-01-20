@@ -4,7 +4,7 @@
 #SBATCH --error=data/logs/slurm/aev_infer_%A_%a.err
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
-#SBATCH --partition=htc
+#SBATCH --clusters=htc
 #SBATCH --gres=gpu:1
 
 # AEV-PLIG inference worker SLURM script

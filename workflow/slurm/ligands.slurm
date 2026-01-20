@@ -4,7 +4,7 @@
 #SBATCH --error=data/logs/slurm/ligands_%A_%a.err
 #SBATCH --time=01:00:00
 #SBATCH --mem=8G
-#SBATCH --partition=arc
+#SBATCH --clusters=arc
 #SBATCH --cpus-per-task=4
 
 # Ligands worker SLURM script (SMILES to PDBQT conversion)
