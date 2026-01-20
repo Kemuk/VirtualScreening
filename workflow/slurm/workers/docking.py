@@ -112,10 +112,20 @@ def run_vina_docking(
             "--cpu", str(os.cpu_count() or 8),
         ])
 
+    # Set up environment with LD_LIBRARY_PATH including vina directory
+    # This is needed for Vina GPU which has shared libraries in its directory
+    env = os.environ.copy()
+    existing_ld_path = env.get('LD_LIBRARY_PATH', '')
+    if existing_ld_path:
+        env['LD_LIBRARY_PATH'] = f"{vina_dir}:{existing_ld_path}"
+    else:
+        env['LD_LIBRARY_PATH'] = str(vina_dir)
+
     # Run docking
     result = subprocess.run(
         cmd,
         cwd=str(vina_dir),
+        env=env,
         capture_output=True,
         text=True,
         check=False,
