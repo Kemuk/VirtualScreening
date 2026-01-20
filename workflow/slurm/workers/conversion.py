@@ -110,40 +110,65 @@ def process_item(row: dict, model_index: int) -> dict:
         model_index: Which model to extract
 
     Returns:
-        Result dict with compound_key, success, error
+        Result dict with compound_key, ligand_id, paths, success, error
     """
     compound_key = row['compound_key']
-    pdbqt_path = Path(row['docked_pdbqt_path'])
-    sdf_path = Path(row['docked_sdf_path'])
+    ligand_id = row.get('ligand_id', '')
+    docked_pdbqt_path = row.get('docked_pdbqt_path', '')
+    docked_sdf_path = row.get('docked_sdf_path', '')
+
+    pdbqt_path = Path(docked_pdbqt_path) if docked_pdbqt_path else None
+    sdf_path = Path(docked_sdf_path) if docked_sdf_path else None
+
+    # Base result with identifying info and paths
+    base_result = {
+        'compound_key': compound_key,
+        'ligand_id': ligand_id,
+        'docked_pdbqt_path': docked_pdbqt_path,
+        'docked_sdf_path': docked_sdf_path,
+    }
 
     # Skip if already exists
-    if sdf_path.exists():
+    if sdf_path and sdf_path.exists():
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': True,
             'skipped': True,
+            'error': '',
         }
 
     # Validate input exists
-    if not pdbqt_path.exists():
+    if not pdbqt_path or not pdbqt_path.exists():
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': False,
-            'error': f"Docked PDBQT not found: {pdbqt_path}",
+            'skipped': False,
+            'error': f"Docked PDBQT not found: {docked_pdbqt_path}",
+        }
+
+    if not sdf_path:
+        return {
+            **base_result,
+            'success': False,
+            'skipped': False,
+            'error': 'No docked_sdf_path specified',
         }
 
     try:
         success = pdbqt_to_sdf(pdbqt_path, sdf_path, model_index)
 
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': success,
+            'skipped': False,
+            'error': '' if success else 'PDBQT to SDF conversion failed',
         }
 
     except Exception as e:
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': False,
+            'skipped': False,
             'error': str(e),
         }
 

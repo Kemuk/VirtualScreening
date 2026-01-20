@@ -33,17 +33,38 @@ def process_item(row: dict, ph: float, partial_charge: str) -> dict:
         partial_charge: Charge calculation method
 
     Returns:
-        Result dict with compound_key, success, error
+        Result dict with compound_key, ligand_id, paths, success, error
     """
     compound_key = row['compound_key']
-    pdbqt_path = Path(row['ligand_pdbqt_path'])
+    ligand_id = row.get('ligand_id', '')
+    smiles = row.get('smiles_input', '')
+    ligand_pdbqt_path = row.get('ligand_pdbqt_path', '')
+
+    pdbqt_path = Path(ligand_pdbqt_path) if ligand_pdbqt_path else None
+
+    # Base result with identifying info and paths
+    base_result = {
+        'compound_key': compound_key,
+        'ligand_id': ligand_id,
+        'smiles': smiles,
+        'ligand_pdbqt_path': ligand_pdbqt_path,
+    }
 
     # Skip if already exists
-    if pdbqt_path.exists():
+    if pdbqt_path and pdbqt_path.exists():
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': True,
             'skipped': True,
+            'error': '',
+        }
+
+    if not pdbqt_path:
+        return {
+            **base_result,
+            'success': False,
+            'skipped': False,
+            'error': 'No ligand_pdbqt_path specified',
         }
 
     try:
@@ -52,21 +73,24 @@ def process_item(row: dict, ph: float, partial_charge: str) -> dict:
 
         # Convert SMILES to PDBQT
         success = smiles_to_pdbqt(
-            smiles=row['smiles_input'],
+            smiles=smiles,
             pdbqt_path=pdbqt_path,
             ph=ph,
             partial_charge=partial_charge,
         )
 
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': success,
+            'skipped': False,
+            'error': '' if success else 'SMILES to PDBQT conversion failed',
         }
 
     except Exception as e:
         return {
-            'compound_key': compound_key,
+            **base_result,
             'success': False,
+            'skipped': False,
             'error': str(e),
         }
 
