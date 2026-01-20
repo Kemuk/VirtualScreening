@@ -41,8 +41,6 @@ STAGES = {
         'score_column': 'aev_plig_best_score',
         'worker_module': 'workflow.slurm.workers.aev_infer',
         'description': 'AEV-PLIG neural network rescoring',
-        # Require SDF files to exist (from conversion stage)
-        'check_file_column': 'docked_sdf_path',
     },
 }
 

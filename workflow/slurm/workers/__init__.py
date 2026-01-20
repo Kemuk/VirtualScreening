@@ -4,7 +4,7 @@ workers - Stage-specific worker modules for SLURM array jobs.
 Each worker module provides a process_slice() function that:
 1. Reads its slice from the pending parquet
 2. Processes each item
-3. Writes results to CSV in data/master/results/{stage}/chunk_{task_id}.csv
+3. Writes results to CSV
 """
 
 from pathlib import Path
@@ -111,10 +111,8 @@ def write_results(
     Returns:
         Path to written CSV file
     """
-    # Organize results into stage-specific subdirectories
-    stage_dir = results_dir / stage
-    stage_dir.mkdir(parents=True, exist_ok=True)
-    output_path = stage_dir / f"chunk_{task_id:05d}.csv"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    output_path = results_dir / f"{stage}_{task_id:05d}.csv"
 
     # Get expected columns for this stage
     if columns is None:
