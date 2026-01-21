@@ -46,6 +46,13 @@ def get_target_config(target_id):
 # Cache for loaded manifest to avoid reloading during DAG construction
 _MANIFEST_CACHE = {}
 
+def get_manifest_path():
+    """Get the mode-specific manifest path."""
+    mode = config.get('mode', 'production')
+    manifest_name = f"manifest_{mode}.parquet" if mode != 'production' else "manifest.parquet"
+    return Path(config['manifest_dir']) / manifest_name
+
+
 def load_manifest(manifest_path=None):
     """
     Load manifest as pandas DataFrame with caching.
@@ -60,7 +67,7 @@ def load_manifest(manifest_path=None):
     from tqdm import tqdm
 
     if manifest_path is None:
-        manifest_path = Path(config['manifest_dir']) / 'manifest.parquet'
+        manifest_path = get_manifest_path()
 
     # Use absolute path as cache key
     cache_key = str(manifest_path.resolve())
@@ -248,12 +255,45 @@ def get_tool_path(tool_name):
 
 
 # =============================================================================
+# Chunking Helpers
+# =============================================================================
+
+def get_chunk_count(stage_type: str) -> int:
+    """
+    Get the configured chunk count for a stage type.
+
+    Args:
+        stage_type: "cpu", "gpu", or "default"
+
+    Returns:
+        Chunk count as integer.
+    """
+    mode = config.get('mode', 'production')
+    chunking = config.get('chunking', {})
+    mode_chunking = chunking.get(mode, {})
+
+    if stage_type == "gpu":
+        return mode_chunking.get('gpu_chunks', mode_chunking.get('chunks', 1))
+    if stage_type == "cpu":
+        return mode_chunking.get('cpu_chunks', mode_chunking.get('chunks', 1))
+    return mode_chunking.get('chunks', 1)
+
+
+def get_chunk_max_items() -> int | None:
+    """Get max_items limit for the current mode, if configured."""
+    mode = config.get('mode', 'production')
+    chunking = config.get('chunking', {})
+    mode_chunking = chunking.get(mode, {})
+    return mode_chunking.get('max_items')
+
+
+# =============================================================================
 # Validation Helpers
 # =============================================================================
 
 def validate_manifest_exists():
     """Check if manifest file exists, raise error if not."""
-    manifest_path = Path(config['manifest_dir']) / 'manifest.parquet'
+    manifest_path = get_manifest_path()
     if not manifest_path.exists():
         raise FileNotFoundError(
             f"Manifest not found: {manifest_path}\n"

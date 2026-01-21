@@ -102,14 +102,10 @@ def scan_targets(
     default_box_size = workflow_config.get('default_box_size', {'x': 25.0, 'y': 25.0, 'z': 25.0})
     targets = targets_config.get('targets', {})
 
-    # Get mode and limits
     mode = workflow_config.get('mode', 'test')
-    if mode == 'test':
-        max_actives = workflow_config.get('test', {}).get('actives_per_protein', 100)
-        max_inactives = workflow_config.get('test', {}).get('inactives_per_protein', 9900)
-    else:
-        max_actives = None
-        max_inactives = None
+    mode_config = workflow_config.get(mode, {})
+    max_actives = mode_config.get('actives_per_protein')
+    max_inactives = mode_config.get('inactives_per_protein')
 
     items = []
 

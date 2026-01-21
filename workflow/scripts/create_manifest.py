@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import yaml
-import pandas as pd
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from rdkit import Chem
@@ -61,6 +61,9 @@ MANIFEST_SCHEMA = pa.schema([
     ('docked_pdbqt_path', pa.string()),
     ('docking_log_path', pa.string()),
     ('vina_score', pa.float64()),
+
+    # Conversion (1 column)
+    ('conversion_status', pa.bool_()),
 
     # Rescoring (14 columns)
     ('rescoring_status', pa.bool_()),
@@ -145,14 +148,10 @@ def generate_manifest_entries(
     default_box_size = workflow_config.get('default_box_size', {'x': 25.0, 'y': 25.0, 'z': 25.0})
     targets = targets_config.get('targets', {})
 
-    # Get mode and limits
     mode = workflow_config.get('mode', 'test')
-    if mode == 'test':
-        max_actives = workflow_config.get('test', {}).get('actives_per_protein', 100)
-        max_inactives = workflow_config.get('test', {}).get('inactives_per_protein', 9900)
-    else:
-        max_actives = None  # No limit
-        max_inactives = None
+    mode_config = workflow_config.get(mode, {})
+    max_actives = mode_config.get('actives_per_protein')
+    max_inactives = mode_config.get('inactives_per_protein')
 
     # Prepare all ligand tasks (combining actives and inactives)
     all_tasks = []
@@ -301,6 +300,9 @@ def create_ligand_entry(
     docking_status = docked_pdbqt_path.exists()
     vina_score = extract_vina_score(docking_log_path) if docking_status else None
 
+    # Check conversion status (SDF exists)
+    conversion_status = docked_sdf_path.exists()
+
     # Check rescoring status
     rescoring_status = False  # Will be updated by rescoring stage
     binding_affinity_pK = None
@@ -348,6 +350,9 @@ def create_ligand_entry(
         'docked_pdbqt_path': str(docked_pdbqt_path.relative_to(project_root)),
         'docking_log_path': str(docking_log_path.relative_to(project_root)),
         'vina_score': vina_score,
+
+        # Conversion
+        'conversion_status': conversion_status,
 
         # Rescoring
         'rescoring_status': rescoring_status,
@@ -419,6 +424,7 @@ def process_batch(items: List[Dict], config: Dict) -> List[Dict]:
             preparation_status = ligand_pdbqt_path.exists()
             docking_status = docked_pdbqt_path.exists()
             vina_score = extract_vina_score(docking_log_path) if docking_status else None
+            conversion_status = docked_sdf_path.exists()
 
             now = datetime.now().isoformat()
 
@@ -447,6 +453,7 @@ def process_batch(items: List[Dict], config: Dict) -> List[Dict]:
                 'docked_pdbqt_path': str(docked_pdbqt_path.relative_to(project_root)),
                 'docking_log_path': str(docking_log_path.relative_to(project_root)),
                 'vina_score': vina_score,
+                'conversion_status': conversion_status,
                 'rescoring_status': False,
                 'docked_sdf_path': str(docked_sdf_path.relative_to(project_root)),
                 'binding_affinity_pK': None,
@@ -525,48 +532,48 @@ def save_manifest(entries: List[Dict], output_path: Path, backup: bool = True):
         output_path.rename(backup_path)
         print(f"Created backup: {backup_path}")
 
-    # Convert to DataFrame
-    df = pd.DataFrame(entries)
+    df = pl.DataFrame(entries)
+    if 'compound_key' in df.columns:
+        before = df.height
+        df = df.unique(subset=['compound_key'], keep='first')
+        after = df.height
+        removed = before - after
+        if removed:
+            print(f"Deduplicated {removed} entries by compound_key")
 
-    # Ensure correct data types
-    df['is_active'] = df['is_active'].astype(bool)
-    df['preparation_status'] = df['preparation_status'].astype(bool)
-    df['docking_status'] = df['docking_status'].astype(bool)
-    df['rescoring_status'] = df['rescoring_status'].astype(bool)
-
-    # Convert timestamps
-    df['created_at'] = pd.to_datetime(df['created_at'])
-    df['last_updated'] = pd.to_datetime(df['last_updated'])
+    df = df.with_columns([
+        pl.col('is_active').cast(pl.Boolean),
+        pl.col('preparation_status').cast(pl.Boolean),
+        pl.col('docking_status').cast(pl.Boolean),
+        pl.col('conversion_status').cast(pl.Boolean),
+        pl.col('rescoring_status').cast(pl.Boolean),
+        pl.col('created_at').cast(pl.Datetime),
+        pl.col('last_updated').cast(pl.Datetime),
+    ])
 
     # Write to Parquet with compression
-    table = pa.Table.from_pandas(df, schema=MANIFEST_SCHEMA)
+    table = df.to_arrow()
+    table = table.cast(MANIFEST_SCHEMA)
     pq.write_table(table, output_path, compression='snappy')
 
     print(f"Saved manifest: {output_path}")
     print(f"  Total entries: {len(entries)}")
     print(f"  Prepared: {df['preparation_status'].sum()}")
     print(f"  Docked: {df['docking_status'].sum()}")
+    print(f"  Converted: {df['conversion_status'].sum()}")
     print(f"  Rescored: {df['rescoring_status'].sum()}")
 
 
-def filter_test_mode(entries: List[Dict], workflow_config: Dict) -> List[Dict]:
+def filter_mode_entries(entries: List[Dict], workflow_config: Dict) -> List[Dict]:
     """
-    Filter entries for test mode.
-
-    Takes a subset of ligands per protein for testing:
-    - N actives per protein
-    - N inactives per protein
-
-    Args:
-        entries: Full list of manifest entries
-        workflow_config: Workflow configuration
-
-    Returns:
-        Filtered list of entries
+    Filter entries for the configured mode if limits are set.
     """
-    test_config = workflow_config.get('test', {})
-    actives_per_protein = test_config.get('actives_per_protein', 100)
-    inactives_per_protein = test_config.get('inactives_per_protein', 9900)
+    mode = workflow_config.get('mode', 'test')
+    mode_config = workflow_config.get(mode, {})
+    actives_per_protein = mode_config.get('actives_per_protein')
+    inactives_per_protein = mode_config.get('inactives_per_protein')
+    if actives_per_protein is None and inactives_per_protein is None:
+        return entries
 
     # Group by protein
     from collections import defaultdict
@@ -583,18 +590,24 @@ def filter_test_mode(entries: List[Dict], workflow_config: Dict) -> List[Dict]:
     filtered_entries = []
     for protein_id, ligands in by_protein.items():
         # Take first N actives and inactives (deterministic)
-        selected_actives = ligands['actives'][:actives_per_protein]
-        selected_inactives = ligands['inactives'][:inactives_per_protein]
+        actives_limit = actives_per_protein if actives_per_protein is not None else len(ligands['actives'])
+        inactives_limit = inactives_per_protein if inactives_per_protein is not None else len(ligands['inactives'])
+        selected_actives = ligands['actives'][:actives_limit]
+        selected_inactives = ligands['inactives'][:inactives_limit]
 
         filtered_entries.extend(selected_actives)
         filtered_entries.extend(selected_inactives)
 
         print(f"  {protein_id}: {len(selected_actives)} actives + {len(selected_inactives)} inactives = {len(selected_actives) + len(selected_inactives)} total")
 
-    total_per_protein = actives_per_protein + inactives_per_protein
-    print(f"\nTest mode: Filtered to {len(filtered_entries)} ligands (from {len(entries)} total)")
+    total_per_protein = (actives_per_protein or 0) + (inactives_per_protein or 0)
+    print(f"\nMode {mode}: Filtered to {len(filtered_entries)} ligands (from {len(entries)} total)")
     print(f"  Targets: {len(by_protein)}")
-    print(f"  Per target: up to {total_per_protein} ligands ({actives_per_protein} actives + {inactives_per_protein} inactives)")
+    if actives_per_protein is not None or inactives_per_protein is not None:
+        print(
+            f"  Per target: up to {total_per_protein} ligands "
+            f"({actives_per_protein or 0} actives + {inactives_per_protein or 0} inactives)"
+        )
 
     return filtered_entries
 
@@ -660,10 +673,7 @@ def main():
         print("ERROR: No entries generated. Check your configuration and SMILES files.", file=sys.stderr)
         sys.exit(1)
 
-    # Apply test mode filtering if enabled
-    mode = workflow_config.get('mode', 'test')
-    if mode == 'test':
-        entries = filter_test_mode(entries, workflow_config)
+    entries = filter_mode_entries(entries, workflow_config)
 
     # Save manifest
     save_manifest(entries, args.output, backup=not args.no_backup)

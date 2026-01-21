@@ -31,7 +31,12 @@ MODE = config.get('mode', 'production')
 MODE_CONFIG = config.get(MODE, {})
 
 # Number of shards for parallel AEV-PLIG processing
-NUM_SHARDS = MODE_CONFIG.get('aev_plig_shards', 100)
+chunking = config.get('chunking', {})
+mode_chunking = chunking.get(MODE, {})
+if MODE == "production":
+    NUM_SHARDS = mode_chunking.get('gpu_chunks', MODE_CONFIG.get('aev_plig_shards', 100))
+else:
+    NUM_SHARDS = mode_chunking.get('chunks', MODE_CONFIG.get('aev_plig_shards', 5))
 SHARDS = list(range(NUM_SHARDS))
 
 # AEV-PLIG settings

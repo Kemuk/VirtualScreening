@@ -4,7 +4,10 @@ preparation.smk
 Snakemake rules for receptor and ligand preparation.
 """
 
-import pandas as pd
+MODE = config.get('mode', 'production')
+PREP_CHUNKS = get_chunk_count("cpu")
+PREP_MAX_ITEMS = get_chunk_max_items()
+PREP_CHUNK_IDS = list(range(PREP_CHUNKS))
 
 
 # Receptor Preparation
@@ -59,34 +62,81 @@ rule prepare_all_receptors:
 
 
 # Ligand Preparation (Batch Processing)
-rule prepare_all_ligands:
-    """Prepare all ligands using batch parallel processing (single progress bar)."""
+rule shard_preparation:
+    """Shard ligands needing preparation into chunk CSVs."""
     input:
         manifest = MANIFEST_PATH
+
+    output:
+        expand("data/chunks/preparation/chunk_{chunk}.csv", chunk=PREP_CHUNK_IDS)
+
+    log:
+        "data/logs/preparation/shard_preparation.log"
+
+    params:
+        num_chunks = PREP_CHUNKS,
+        max_items_flag = lambda wildcards: f"--max-items {PREP_MAX_ITEMS}" if PREP_MAX_ITEMS else "",
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/shard_stage.py \
+            --stage preparation \
+            --manifest {input.manifest} \
+            --outdir data/chunks/preparation \
+            --num-chunks {params.num_chunks} \
+            {params.max_items_flag} \
+            2>&1 | tee {log}
+        """
+
+
+rule prepare_ligand_chunk:
+    """Prepare ligands for a single chunk."""
+    input:
+        chunk = "data/chunks/preparation/chunk_{chunk}.csv"
+
+    output:
+        results = "data/results/preparation/chunk_{chunk}.csv"
+
+    log:
+        "data/logs/preparation/prepare_ligand_chunk_{chunk}.log"
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/process_stage_chunk.py \
+            --stage preparation \
+            --chunk {input.chunk} \
+            --output {output.results} \
+            2>&1 | tee {log}
+        """
+
+
+rule merge_preparation_results:
+    """Merge preparation chunk results into the manifest."""
+    input:
+        manifest = MANIFEST_PATH,
+        results = expand("data/results/preparation/chunk_{chunk}.csv", chunk=PREP_CHUNK_IDS),
 
     output:
         touch("data/logs/preparation/ligands_checkpoint.done")
 
     log:
-        "data/logs/preparation/batch_ligand_preparation.log"
+        "data/logs/preparation/merge_preparation_results.log"
 
     conda:
         "../envs/vscreen.yaml"
 
-    params:
-        ph = config.get('preparation', {}).get('ph', 7.4),
-        partial_charge = config.get('preparation', {}).get('partial_charge', 'gasteiger'),
-        max_workers_flag = lambda wildcards: f"--max-workers {config.get('preparation', {}).get('max_workers')}" if config.get('preparation', {}).get('max_workers') else "",
-
     shell:
         """
-        python workflow/scripts/prepare_all_ligands.py \
+        python workflow/scripts/merge_stage_results.py \
+            --stage preparation \
             --manifest {input.manifest} \
-            --project-root . \
-            --ph {params.ph} \
-            --partial-charge {params.partial_charge} \
-            {params.max_workers_flag} \
-            --force \
+            --results-dir data/results/preparation \
             2>&1 | tee {log}
         """
 

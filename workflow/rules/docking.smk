@@ -15,15 +15,14 @@ Rules:
   - dock_all: Dock all ligands using configured mode
 """
 
-import pandas as pd
-
-
 # =============================================================================
 # Configuration
 # =============================================================================
 
 # Docking mode from config (gpu or cpu)
 DOCKING_MODE = config.get('docking', {}).get('mode', 'gpu')
+DOCK_CHUNKS = get_chunk_count("gpu")
+DOCK_CHUNK_IDS = list(range(DOCK_CHUNKS))
 
 
 # =============================================================================
@@ -215,114 +214,86 @@ def get_box_params_for_ligand(target_id: str, ligand_id: str) -> dict:
     }
 
 
-def get_ligands_needing_docking():
-    """
-    Get list of docked PDBQT paths for ligands that need docking.
-
-    Filters manifest for ligands where:
-      - preparation_status = True
-      - docking_status = False
-
-    Returns:
-        List of docked PDBQT file paths
-    """
-    import sys
-    from tqdm import tqdm
-
-    manifest = load_manifest()
-
-    prepared = manifest[manifest['preparation_status'] == True]
-    print(f"  Prepared ligands: {len(prepared)}", file=sys.stderr)
-
-    # Filter to prepared but undocked ligands with progress
-    print("  Filtering for undocked ligands...", file=sys.stderr)
-    needs_docking = manifest[
-        (manifest['preparation_status'] == True) &
-        (manifest['docking_status'] == False)
-    ]
-    print(f"  Found {len(needs_docking)} ligands needing docking", file=sys.stderr)
-
-    # Build path list with progress bar
-    print("  Building job list for Snakemake...", file=sys.stderr)
-    with tqdm(total=len(needs_docking), desc="  Extracting paths", unit=" ligands",
-              file=sys.stderr, ncols=80, miniters=1000) as pbar:
-        paths = needs_docking['docked_pdbqt_path'].tolist()
-        pbar.update(len(needs_docking))
-
-    print(f"  DAG construction complete: {len(paths)} docking jobs", file=sys.stderr)
-    return paths
-
-
 # =============================================================================
 # Batch Docking Rules
 # =============================================================================
 
-checkpoint docking_checkpoint:
-    """
-    Checkpoint to determine which ligands need docking.
-
-    Reads manifest and identifies ligands that are prepared but not docked.
-    """
+rule shard_docking:
+    """Shard ligands needing docking into chunk CSVs."""
     input:
         manifest = MANIFEST_PATH,
         prep_checkpoint = "data/logs/preparation/ligands_checkpoint.done",
 
     output:
+        expand("data/chunks/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS)
+
+    log:
+        "data/logs/docking/shard_docking.log"
+
+    params:
+        num_chunks = DOCK_CHUNKS,
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/shard_stage.py \
+            --stage docking \
+            --manifest {input.manifest} \
+            --outdir data/chunks/docking \
+            --num-chunks {params.num_chunks} \
+            2>&1 | tee {log}
+        """
+
+
+rule dock_chunk:
+    """Dock ligands for a single chunk."""
+    input:
+        chunk = "data/chunks/docking/chunk_{chunk}.csv"
+
+    output:
+        results = "data/results/docking/chunk_{chunk}.csv"
+
+    log:
+        "data/logs/docking/dock_chunk_{chunk}.log"
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/process_stage_chunk.py \
+            --stage docking \
+            --chunk {input.chunk} \
+            --output {output.results} \
+            2>&1 | tee {log}
+        """
+
+
+rule merge_docking_results:
+    """Merge docking chunk results into the manifest."""
+    input:
+        manifest = MANIFEST_PATH,
+        results = expand("data/results/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS),
+
+    output:
         touch("data/logs/docking/docking_checkpoint.done")
 
-    run:
-        manifest = load_manifest()
+    log:
+        "data/logs/docking/merge_docking_results.log"
 
-        prepared = manifest[manifest['preparation_status'] == True]
-        docked = manifest[manifest['docking_status'] == True]
-        needs_docking = manifest[
-            (manifest['preparation_status'] == True) &
-            (manifest['docking_status'] == False)
-        ]
+    conda:
+        "../envs/vscreen.yaml"
 
-        print(f"\nDocking status:")
-        print(f"  Prepared ligands: {len(prepared)}")
-        print(f"  Already docked: {len(docked)}")
-        print(f"  Need docking: {len(needs_docking)}")
-
-
-def get_docked_ligands(wildcards):
-    """
-    Dynamic input function for dock_all rules.
-
-    Called after checkpoint completes, determines which ligands to dock.
-    """
-    # Trigger checkpoint
-    checkpoints.docking_checkpoint.get()
-
-    # Get ligands needing docking
-    return get_ligands_needing_docking()
-
-
-rule dock_all_gpu:
-    """
-    Dock all prepared ligands using GPU.
-
-    Uses checkpoint to dynamically determine which ligands need docking.
-    """
-    input:
-        get_docked_ligands
-
-    message:
-        "GPU docking complete for all ligands!"
-
-
-rule dock_all_cpu:
-    """
-    Dock all prepared ligands using CPU.
-
-    Uses checkpoint to dynamically determine which ligands need docking.
-    """
-    input:
-        get_docked_ligands
-
-    message:
-        "CPU docking complete for all ligands!"
+    shell:
+        """
+        python workflow/scripts/merge_stage_results.py \
+            --stage docking \
+            --manifest {input.manifest} \
+            --results-dir data/results/docking \
+            2>&1 | tee {log}
+        """
 
 
 rule dock_all:
@@ -332,12 +303,9 @@ rule dock_all:
     Mode is determined by config['docking']['mode']:
       - 'gpu': Uses GPU-accelerated Vina
       - 'cpu': Uses CPU-based Vina
-
-    To override at runtime:
-      snakemake --config docking.mode=cpu dock_all
     """
     input:
-        get_docked_ligands
+        "data/logs/docking/docking_checkpoint.done"
 
     message:
         f"Docking complete using {DOCKING_MODE.upper()} mode!"

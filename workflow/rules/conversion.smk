@@ -13,7 +13,8 @@ Rules:
   - convert_all_to_sdf: Batch conversion of all docked ligands
 """
 
-import pandas as pd
+CONVERSION_CHUNKS = get_chunk_count("cpu")
+CONVERSION_CHUNK_IDS = list(range(CONVERSION_CHUNKS))
 
 
 # =============================================================================
@@ -74,90 +75,86 @@ rule convert_to_sdf:
 # Helper Functions
 # =============================================================================
 
-def get_ligands_needing_conversion():
-    """
-    Get list of SDF paths for ligands that need conversion.
-
-    Filters manifest for ligands where:
-      - docking_status = True
-      - SDF file doesn't exist yet
-
-    Returns:
-        List of SDF file paths
-    """
-    manifest = load_manifest()
-
-    # Filter to docked ligands
-    docked = manifest[manifest['docking_status'] == True]
-
-    # Check which SDF files don't exist yet
-    needs_conversion = []
-    for _, row in docked.iterrows():
-        sdf_path = Path(row['docked_sdf_path'])
-        if not sdf_path.exists():
-            needs_conversion.append(str(sdf_path))
-
-    return needs_conversion
-
-
 # =============================================================================
 # Batch Conversion Rules
 # =============================================================================
 
-checkpoint conversion_checkpoint:
-    """
-    Checkpoint to determine which docked ligands need SDF conversion.
-
-    Reads manifest and identifies ligands that have been docked but
-    not yet converted to SDF.
-    """
+rule shard_conversion:
+    """Shard docked ligands needing conversion into chunk CSVs."""
     input:
         manifest = MANIFEST_PATH,
         docking_checkpoint = "data/logs/docking/docking_checkpoint.done",
 
     output:
+        expand("data/chunks/conversion/chunk_{chunk}.csv", chunk=CONVERSION_CHUNK_IDS)
+
+    log:
+        "data/logs/conversion/shard_conversion.log"
+
+    params:
+        num_chunks = CONVERSION_CHUNKS,
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/shard_stage.py \
+            --stage conversion \
+            --manifest {input.manifest} \
+            --outdir data/chunks/conversion \
+            --num-chunks {params.num_chunks} \
+            2>&1 | tee {log}
+        """
+
+
+rule convert_chunk_to_sdf:
+    """Convert docked ligands to SDF for a single chunk."""
+    input:
+        chunk = "data/chunks/conversion/chunk_{chunk}.csv"
+
+    output:
+        results = "data/results/conversion/chunk_{chunk}.csv"
+
+    log:
+        "data/logs/conversion/convert_chunk_{chunk}.log"
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/process_stage_chunk.py \
+            --stage conversion \
+            --chunk {input.chunk} \
+            --output {output.results} \
+            2>&1 | tee {log}
+        """
+
+
+rule merge_conversion_results:
+    """Merge conversion chunk results into the manifest."""
+    input:
+        manifest = MANIFEST_PATH,
+        results = expand("data/results/conversion/chunk_{chunk}.csv", chunk=CONVERSION_CHUNK_IDS),
+
+    output:
         touch("data/logs/conversion/conversion_checkpoint.done")
 
-    run:
-        manifest = load_manifest()
+    log:
+        "data/logs/conversion/merge_conversion_results.log"
 
-        docked = manifest[manifest['docking_status'] == True]
+    conda:
+        "../envs/vscreen.yaml"
 
-        # Count existing SDF files
-        existing_sdfs = sum(1 for _, row in docked.iterrows()
-                          if Path(row['docked_sdf_path']).exists())
-        needs_conversion = len(docked) - existing_sdfs
-
-        print(f"\nConversion status:")
-        print(f"  Docked ligands: {len(docked)}")
-        print(f"  Already converted: {existing_sdfs}")
-        print(f"  Need conversion: {needs_conversion}")
-
-
-def get_converted_ligands(wildcards):
-    """
-    Dynamic input function for convert_all_to_sdf rule.
-
-    Called after checkpoint completes, determines which SDF files to create.
-    """
-    # Trigger checkpoint
-    checkpoints.conversion_checkpoint.get()
-
-    # Get ligands needing conversion
-    return get_ligands_needing_conversion()
-
-
-rule convert_all_to_sdf:
-    """
-    Convert all docked ligands to SDF format.
-
-    Uses checkpoint to dynamically determine which ligands need conversion.
-    """
-    input:
-        get_converted_ligands
-
-    message:
-        "SDF conversion complete for all docked ligands!"
+    shell:
+        """
+        python workflow/scripts/merge_stage_results.py \
+            --stage conversion \
+            --manifest {input.manifest} \
+            --results-dir data/results/conversion \
+            2>&1 | tee {log}
+        """
 
 
 # =============================================================================

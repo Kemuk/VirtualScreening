@@ -41,6 +41,24 @@ set-resources:
     mem_mb: 16000
     cpus_per_task: 16
 
+  shard_preparation:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  prepare_ligand_chunk:
+    slurm_partition: "short"
+    runtime: 120
+    mem_mb: 16000
+    cpus_per_task: 16
+
+  merge_preparation_results:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
+
   # =========================================
   # Docking
   # =========================================
@@ -58,6 +76,25 @@ set-resources:
     mem_mb: 64000
     cpus_per_task: 32
 
+  shard_docking:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  dock_chunk:
+    slurm_partition: "gpu"
+    slurm_extra: "'--gres=gpu:1 --clusters=htc --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    runtime: 720
+    mem_mb: 20000
+    cpus_per_task: 2
+
+  merge_docking_results:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
+
   # =========================================
   # SDF Conversion
   # =========================================
@@ -72,6 +109,24 @@ set-resources:
     runtime: 60
     mem_mb: 16000
     cpus_per_task: 8
+
+  shard_conversion:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
+
+  convert_chunk_to_sdf:
+    slurm_partition: "short"
+    runtime: 60
+    mem_mb: 16000
+    cpus_per_task: 8
+
+  merge_conversion_results:
+    slurm_partition: "short"
+    runtime: 20
+    mem_mb: 16000
+    cpus_per_task: 4
 
   # =========================================
   # AEV-PLIG Rescoring
