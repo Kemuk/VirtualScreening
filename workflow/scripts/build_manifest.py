@@ -68,6 +68,9 @@ MANIFEST_SCHEMA = pa.schema([
     ('docking_log_path', pa.string()),
     ('vina_score', pa.float64()),
 
+    # Conversion (1 column)
+    ('conversion_status', pa.bool_()),
+
     # Rescoring (14 columns)
     ('rescoring_status', pa.bool_()),
     ('docked_sdf_path', pa.string()),
@@ -174,6 +177,7 @@ def build_manifest(results: List[Dict], output_path: Path) -> int:
     df['is_active'] = df['is_active'].astype(bool)
     df['preparation_status'] = df['preparation_status'].astype(bool)
     df['docking_status'] = df['docking_status'].astype(bool)
+    df['conversion_status'] = df['conversion_status'].astype(bool)
     df['rescoring_status'] = df['rescoring_status'].astype(bool)
 
     # Convert timestamps (they come as ISO strings from JSON)

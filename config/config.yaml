@@ -33,6 +33,16 @@ production:
   inactives_per_protein: null      # All inactives (no limit)
   aev_plig_shards: 100
 
+# Chunking Configuration
+# ----------------------
+chunking:
+  devel:
+    max_items: 1000
+    chunks: 5
+  production:
+    cpu_chunks: 100
+    gpu_chunks: 500
+
 # Paths
 # -----
 dataset_dir: "LIT_PCBA"            # Root directory for target data
