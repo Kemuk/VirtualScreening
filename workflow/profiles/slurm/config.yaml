@@ -9,6 +9,7 @@ latency-wait: 60                   # Wait for files to appear (NFS lag)
 retries: 2                         # Retry failed jobs
 printshellcmds: true
 keep-going: true                   # Continue with independent jobs on failure
+slurm_logdir: "data/logs/slurm"
 
 # Default resources (applied to all rules unless overridden)
 default-resources:
@@ -56,7 +57,7 @@ set-resources:
   # Docking
   # =========================================
   dock_ligand_gpu:
-    slurm_extra: "'--gres=gpu:1 --clusters=htc --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "'--clusters=htc --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
     runtime: 720                   # 12 hours
     mem_mb: 20000
     cpus_per_task: 2
@@ -73,7 +74,7 @@ set-resources:
     cpus_per_task: 4
 
   dock_chunk:
-    slurm_extra: "'--gres=gpu:1 --clusters=htc --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "'--clusters=htc --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
     runtime: 720
     mem_mb: 20000
     cpus_per_task: 2
@@ -125,7 +126,7 @@ set-resources:
     cpus_per_task: 4
 
   run_aev_plig_shard:
-    slurm_extra: "'--gres=gpu:1 --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
     runtime: 120                   # 2 hours per shard
     mem_mb: 16000
     cpus_per_task: 4

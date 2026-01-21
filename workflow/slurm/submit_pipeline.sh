@@ -70,7 +70,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Create logs directory
-mkdir -p "${PROJECT_ROOT}/data/slurm/logs"
+mkdir -p "${PROJECT_ROOT}/data/logs/slurm"
 
 echo "========================================"
 echo "Virtual Screening Pipeline Submission"
@@ -97,8 +97,8 @@ JOB_ID=$(sbatch \
     --time="${TIME}" \
     --mem="${MEM}" \
     --job-name="vs-orchestrator" \
-    --output="${PROJECT_ROOT}/data/slurm/logs/orchestrator_%j.out" \
-    --error="${PROJECT_ROOT}/data/slurm/logs/orchestrator_%j.err" \
+    --output="${PROJECT_ROOT}/data/logs/slurm/orchestrator_%j.out" \
+    --error="${PROJECT_ROOT}/data/logs/slurm/orchestrator_%j.err" \
     --chdir="${PROJECT_ROOT}" \
     --parsable \
     --wrap="python -m workflow.slurm.run --stage ${STAGE} ${DEVEL} ${OVERWRITE} ${MERGE_ONLY} --config ${CONFIG}")
@@ -108,7 +108,7 @@ echo "Submitted orchestrator job: ${JOB_ID}"
 echo ""
 echo "Monitor with:"
 echo "  squeue -j ${JOB_ID}"
-echo "  tail -f ${PROJECT_ROOT}/data/slurm/logs/orchestrator_${JOB_ID}.out"
+echo "  tail -f ${PROJECT_ROOT}/data/logs/slurm/orchestrator_${JOB_ID}.out"
 echo ""
 echo "Cancel with:"
 echo "  scancel ${JOB_ID}"
