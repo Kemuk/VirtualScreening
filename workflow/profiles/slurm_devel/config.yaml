@@ -12,7 +12,7 @@ latency-wait: 5                    # Short wait time for devel
 retries: 1                         # Fewer retries during testing
 printshellcmds: true
 keep-going: false                  # Stop on first failure during testing
-slurm_logdir: "data/logs/slurm"
+slurm-logdir: "data/logs/slurm"
 
 # Default resources - use devel partition with short times
 default-resources:
