@@ -656,6 +656,10 @@ def main():
         help="Path to main config file"
     )
     parser.add_argument(
+        "--mode",
+        help="Override workflow mode from config (e.g., devel, test, production)",
+    )
+    parser.add_argument(
         "--targets",
         type=Path,
         default=Path("config/targets.yaml"),
@@ -695,6 +699,8 @@ def main():
     # Load configurations
     workflow_config = load_config(args.config)
     targets_config = load_config(args.targets)
+    if args.mode:
+        workflow_config["mode"] = args.mode
 
     # Generate manifest entries
     print("Generating manifest entries...")

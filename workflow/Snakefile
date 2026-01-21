@@ -109,11 +109,13 @@ rule create_manifest:
 
     params:
         project_root = Path.cwd(),
+        mode = config.get("mode", "production"),
 
     shell:
         """
         python workflow/scripts/create_manifest.py \
             --config {input.config_file} \
+            --mode {params.mode} \
             --targets {input.targets_file} \
             --output {output.manifest} \
             --project-root {params.project_root} \
