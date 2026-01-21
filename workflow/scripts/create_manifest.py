@@ -152,10 +152,21 @@ def generate_manifest_entries(
     mode_config = workflow_config.get(mode, {})
     max_actives = mode_config.get('actives_per_protein')
     max_inactives = mode_config.get('inactives_per_protein')
+    max_items = None
+    if mode == "devel":
+        max_items = (
+            workflow_config.get("chunking", {})
+            .get("devel", {})
+            .get("max_items")
+        )
 
     # Prepare all ligand tasks (combining actives and inactives)
     all_tasks = []
+    stop_early = False
     for protein_id, target_config in targets.items():
+        if max_items is not None and len(all_tasks) >= max_items:
+            stop_early = True
+            break
         receptor_mol2 = project_root / target_config['receptor_mol2']
         actives_smi = project_root / target_config['actives_smi']
         inactives_smi = project_root / target_config['inactives_smi']
@@ -187,6 +198,9 @@ def generate_manifest_entries(
 
         # Create tasks for this target
         for ligand_id, smiles, is_active in ligands:
+            if max_items is not None and len(all_tasks) >= max_items:
+                stop_early = True
+                break
             source_file = actives_smi if is_active else inactives_smi
             task = {
                 'ligand_id': ligand_id,
@@ -204,8 +218,16 @@ def generate_manifest_entries(
                 'project_root': project_root,
             }
             all_tasks.append(task)
+        if stop_early:
+            break
 
-    print(f"Processing {len(all_tasks)} ligands across {len(targets)} targets...")
+    if max_items is not None:
+        print(
+            f"Processing {len(all_tasks)} ligands across {len(targets)} targets "
+            f"(max_items={max_items}, mode={mode})..."
+        )
+    else:
+        print(f"Processing {len(all_tasks)} ligands across {len(targets)} targets...")
 
     # Process in parallel
     max_workers = min(cpu_count(), 16)  # Cap at 16 workers
