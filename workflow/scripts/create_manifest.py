@@ -573,41 +573,54 @@ def filter_mode_entries(entries: List[Dict], workflow_config: Dict) -> List[Dict
     actives_per_protein = mode_config.get('actives_per_protein')
     inactives_per_protein = mode_config.get('inactives_per_protein')
     if actives_per_protein is None and inactives_per_protein is None:
-        return entries
+        filtered_entries = entries
+    else:
+        # Group by protein
+        from collections import defaultdict
+        by_protein = defaultdict(lambda: {'actives': [], 'inactives': []})
 
-    # Group by protein
-    from collections import defaultdict
-    by_protein = defaultdict(lambda: {'actives': [], 'inactives': []})
+        for entry in entries:
+            protein_id = entry['protein_id']
+            if entry['is_active']:
+                by_protein[protein_id]['actives'].append(entry)
+            else:
+                by_protein[protein_id]['inactives'].append(entry)
 
-    for entry in entries:
-        protein_id = entry['protein_id']
-        if entry['is_active']:
-            by_protein[protein_id]['actives'].append(entry)
-        else:
-            by_protein[protein_id]['inactives'].append(entry)
+        # Select subset for each protein
+        filtered_entries = []
+        for protein_id, ligands in by_protein.items():
+            # Take first N actives and inactives (deterministic)
+            actives_limit = actives_per_protein if actives_per_protein is not None else len(ligands['actives'])
+            inactives_limit = inactives_per_protein if inactives_per_protein is not None else len(ligands['inactives'])
+            selected_actives = ligands['actives'][:actives_limit]
+            selected_inactives = ligands['inactives'][:inactives_limit]
 
-    # Select subset for each protein
-    filtered_entries = []
-    for protein_id, ligands in by_protein.items():
-        # Take first N actives and inactives (deterministic)
-        actives_limit = actives_per_protein if actives_per_protein is not None else len(ligands['actives'])
-        inactives_limit = inactives_per_protein if inactives_per_protein is not None else len(ligands['inactives'])
-        selected_actives = ligands['actives'][:actives_limit]
-        selected_inactives = ligands['inactives'][:inactives_limit]
+            filtered_entries.extend(selected_actives)
+            filtered_entries.extend(selected_inactives)
 
-        filtered_entries.extend(selected_actives)
-        filtered_entries.extend(selected_inactives)
+            print(
+                f"  {protein_id}: {len(selected_actives)} actives + {len(selected_inactives)} inactives = "
+                f"{len(selected_actives) + len(selected_inactives)} total"
+            )
 
-        print(f"  {protein_id}: {len(selected_actives)} actives + {len(selected_inactives)} inactives = {len(selected_actives) + len(selected_inactives)} total")
+        total_per_protein = (actives_per_protein or 0) + (inactives_per_protein or 0)
+        print(f"\nMode {mode}: Filtered to {len(filtered_entries)} ligands (from {len(entries)} total)")
+        print(f"  Targets: {len(by_protein)}")
+        if actives_per_protein is not None or inactives_per_protein is not None:
+            print(
+                f"  Per target: up to {total_per_protein} ligands "
+                f"({actives_per_protein or 0} actives + {inactives_per_protein or 0} inactives)"
+            )
 
-    total_per_protein = (actives_per_protein or 0) + (inactives_per_protein or 0)
-    print(f"\nMode {mode}: Filtered to {len(filtered_entries)} ligands (from {len(entries)} total)")
-    print(f"  Targets: {len(by_protein)}")
-    if actives_per_protein is not None or inactives_per_protein is not None:
-        print(
-            f"  Per target: up to {total_per_protein} ligands "
-            f"({actives_per_protein or 0} actives + {inactives_per_protein or 0} inactives)"
+    if mode == "devel":
+        max_items = (
+            workflow_config.get("chunking", {})
+            .get("devel", {})
+            .get("max_items")
         )
+        if max_items:
+            filtered_entries = filtered_entries[:max_items]
+            print(f"  Devel mode: using first {len(filtered_entries)} ligands (max_items={max_items})")
 
     return filtered_entries
 

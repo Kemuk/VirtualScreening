@@ -50,11 +50,13 @@ def add_conversion_status(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(pl.Series("conversion_status", statuses))
 
 
-def filter_stage(df: pl.DataFrame, stage: str) -> pl.DataFrame:
+def filter_stage(df: pl.DataFrame, stage: str, include_done: bool = False) -> pl.DataFrame:
     """Filter manifest rows based on stage status."""
     if stage == "preparation":
         return df.filter(pl.col("preparation_status") == False)
     if stage == "docking":
+        if include_done:
+            return df.filter(pl.col("preparation_status") == True)
         return df.filter(
             (pl.col("preparation_status") == True)
             & (pl.col("docking_status") == False)
@@ -74,10 +76,11 @@ def shard_stage(
     outdir: Path,
     num_chunks: int,
     max_items: int | None = None,
+    include_done: bool = False,
 ) -> list[Path]:
     """Create chunk CSV files for a stage."""
     df = load_manifest(manifest_path)
-    df = filter_stage(df, stage)
+    df = filter_stage(df, stage, include_done=include_done)
 
     if max_items:
         df = df.head(max_items)
@@ -107,6 +110,7 @@ def main() -> None:
     parser.add_argument("--outdir", type=Path, required=True)
     parser.add_argument("--num-chunks", type=int, required=True)
     parser.add_argument("--max-items", type=int)
+    parser.add_argument("--include-done", action="store_true")
 
     args = parser.parse_args()
 
@@ -119,6 +123,7 @@ def main() -> None:
         outdir=args.outdir,
         num_chunks=args.num_chunks,
         max_items=args.max_items,
+        include_done=args.include_done,
     )
     print(f"Created {len(paths)} chunks in {args.outdir}")
 

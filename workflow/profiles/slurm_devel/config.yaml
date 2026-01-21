@@ -17,7 +17,6 @@ keep-going: false                  # Stop on first failure during testing
 default-resources:
   slurm_partition: "devel"
   mem_mb: 4000
-  runtime: 2                       # 2 minutes default
   cpus_per_task: 2
   slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
 
@@ -28,37 +27,31 @@ set-resources:
   # =========================================
   create_manifest:
     slurm_partition: "devel"
-    runtime: 2
-    mem_mb: 8000
-    cpus_per_task: 4
+    mem_mb: 32000
+    cpus_per_task: 16
 
   prepare_receptor:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 2000
     cpus_per_task: 1
 
   prepare_all_ligands:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
 
   shard_preparation:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
 
   prepare_ligand_chunk:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
 
   merge_preparation_results:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
@@ -68,33 +61,28 @@ set-resources:
   dock_ligand_gpu:
     slurm_partition: "devel"
     slurm_extra: "'--gres=gpu:1 --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
 
   dock_ligand_cpu:
     slurm_partition: "devel"
     slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
-    runtime: 2
     mem_mb: 16000
     cpus_per_task: 8
 
   shard_docking:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
   dock_chunk:
     slurm_partition: "devel"
     slurm_extra: "'--gres=gpu:1 --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
 
   merge_docking_results:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
@@ -103,31 +91,26 @@ set-resources:
   # =========================================
   convert_to_sdf:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
   convert_all_sdf:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
 
   shard_conversion:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
   convert_chunk_to_sdf:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
 
   merge_conversion_results:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
@@ -136,32 +119,27 @@ set-resources:
   # =========================================
   prepare_aev_plig_input:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
 
   shard_aev_plig_csv:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
   run_aev_plig_shard:
     slurm_partition: "devel"
     slurm_extra: "'--gres=gpu:1 --mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
 
   merge_aev_plig_predictions:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 4000
     cpus_per_task: 2
 
   update_manifest_aev_plig:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 2
 
@@ -170,12 +148,10 @@ set-resources:
   # =========================================
   compute_results:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4
 
   make_plots:
     slurm_partition: "devel"
-    runtime: 2
     mem_mb: 8000
     cpus_per_task: 4

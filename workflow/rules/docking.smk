@@ -232,6 +232,7 @@ rule shard_docking:
 
     params:
         num_chunks = DOCK_CHUNKS,
+        include_done = "--include-done" if config.get("mode", "production") == "devel" else "",
 
     conda:
         "../envs/vscreen.yaml"
@@ -243,6 +244,7 @@ rule shard_docking:
             --manifest {input.manifest} \
             --outdir data/chunks/docking \
             --num-chunks {params.num_chunks} \
+            {params.include_done} \
             2>&1 | tee {log}
         """
 
