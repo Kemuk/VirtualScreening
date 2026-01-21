@@ -65,7 +65,7 @@ rule prepare_all_ligands:
         manifest = MANIFEST_PATH
 
     output:
-        touch("data/logs/preparation/ligands_prepared.done")
+        touch("data/logs/preparation/ligands_checkpoint.done")
 
     log:
         "data/logs/preparation/batch_ligand_preparation.log"
@@ -96,7 +96,7 @@ rule prepare_all:
     """Prepare all receptors and ligands."""
     input:
         rules.prepare_all_receptors.input,
-        "data/logs/preparation/ligands_prepared.done"
+        "data/logs/preparation/ligands_checkpoint.done"
 
     message:
         "Preparation stage complete!"
