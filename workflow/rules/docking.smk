@@ -250,27 +250,28 @@ rule shard_docking:
         """
 
 
-rule dock_chunk:
-    """Dock ligands for a single chunk."""
+rule dock_array:
+    """Submit a SLURM array to dock all chunks for this stage."""
     input:
-        chunk = "data/chunks/docking/chunk_{chunk}.csv"
+        expand("data/chunks/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS)
 
     output:
-        results = "data/results/docking/chunk_{chunk}.csv"
+        touch("data/logs/docking/docking_array.done")
 
     log:
-        "data/logs/docking/dock_chunk_{chunk}.log"
+        "data/logs/docking/docking_array.log"
 
     conda:
         "../envs/vscreen.yaml"
 
     shell:
         """
-        module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
-        python workflow/scripts/process_stage_chunk.py \
-            --stage docking \
-            --chunk {input.chunk} \
-            --output {output.results} \
+        bash workflow/scripts/submit_docking_array.sh \
+            --chunks-dir data/chunks/docking \
+            --results-dir data/results/docking \
+            --log-dir data/logs/docking \
+            --slurm-log-dir data/logs/slurm \
+            --config config/config.yaml \
             2>&1 | tee {log}
         """
 
@@ -279,7 +280,7 @@ rule merge_docking_results:
     """Merge docking chunk results into the manifest."""
     input:
         manifest = MANIFEST_PATH,
-        results = expand("data/results/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS),
+        array_done = "data/logs/docking/docking_array.done",
 
     output:
         touch("data/logs/docking/docking_checkpoint.done")
