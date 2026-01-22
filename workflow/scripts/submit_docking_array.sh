@@ -52,6 +52,10 @@ fi
 array_end=$((chunk_count - 1))
 
 if [[ -n "$config_path" ]]; then
+    if [[ ! -r "$config_path" ]]; then
+        echo "Config not readable: $config_path" >&2
+        exit 1
+    fi
     docking_mode=$(python - "$config_path" <<'PY'
 import sys
 import yaml
@@ -65,7 +69,7 @@ with cfg_path.open() as handle:
 
 print(cfg.get("docking", {}).get("mode", "cpu"))
 PY
-"$config_path")
+)
 else
     docking_mode="cpu"
 fi
@@ -87,12 +91,12 @@ from pathlib import Path
 if len(sys.argv) < 2:
     raise SystemExit("Missing config path")
 cfg_path = Path(sys.argv[1])
-with cfg_path.open() as handle:
-    cfg = yaml.safe_load(handle)
+    with cfg_path.open() as handle:
+        cfg = yaml.safe_load(handle)
 
-print(cfg.get("mode", "production"))
+    print(cfg.get("mode", "production"))
 PY
-"$config_path")
+)
     if [[ "$mode" == "devel" ]]; then
         partition="--partition=devel"
     fi
