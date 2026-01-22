@@ -82,8 +82,17 @@ def run_vina_docking(
     vina_path = Path(vina_bin)
     if vina_path.is_absolute() or '/' in vina_bin:
         vina_path_abs = vina_path.resolve()
-        vina_dir = vina_path_abs.parent
-        vina_exec = str(vina_path_abs)
+        if vina_path_abs.is_dir():
+            vina_dir = vina_path_abs
+            candidates = [
+                vina_dir / "vina",
+                vina_dir / "QuickVina2-GPU-2-1",
+                vina_dir / "quickvina2_gpu",
+            ]
+            vina_exec = next((str(c) for c in candidates if c.exists()), str(vina_path_abs))
+        else:
+            vina_dir = vina_path_abs.parent
+            vina_exec = str(vina_path_abs)
     else:
         vina_dir = Path.cwd()
         vina_exec = vina_bin

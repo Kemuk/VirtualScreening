@@ -76,12 +76,19 @@ def run_vina_docking(
     # Determine vina working directory and binary absolute path
     vina_path = Path(vina_bin)
     if vina_path.is_absolute() or '/' in vina_bin:
-        # Path-like: use absolute path to executable
         vina_path_abs = vina_path.resolve()
-        vina_dir = vina_path_abs.parent
-        vina_exec = str(vina_path_abs)
+        if vina_path_abs.is_dir():
+            vina_dir = vina_path_abs
+            candidates = [
+                vina_dir / "vina",
+                vina_dir / "QuickVina2-GPU-2-1",
+                vina_dir / "quickvina2_gpu",
+            ]
+            vina_exec = next((str(c) for c in candidates if c.exists()), str(vina_path_abs))
+        else:
+            vina_dir = vina_path_abs.parent
+            vina_exec = str(vina_path_abs)
     else:
-        # Just a command name: use current directory
         vina_dir = Path.cwd()
         vina_exec = vina_bin
 
@@ -116,10 +123,18 @@ def run_vina_docking(
     else:
         raise ValueError(f"Unknown mode: {mode}. Expected 'gpu' or 'cpu'.")
 
+    env = os.environ.copy()
+    existing_ld_path = env.get("LD_LIBRARY_PATH", "")
+    if existing_ld_path:
+        env["LD_LIBRARY_PATH"] = f"{vina_dir}:{existing_ld_path}"
+    else:
+        env["LD_LIBRARY_PATH"] = str(vina_dir)
+
     # Run docking (use check=False like legacy)
     result = subprocess.run(
         cmd,
         cwd=str(vina_dir),
+        env=env,
         capture_output=True,
         text=True,
         check=False,

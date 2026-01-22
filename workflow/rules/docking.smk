@@ -90,6 +90,7 @@ rule dock_ligand_gpu:
 
     shell:
         """
+        module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
         python workflow/scripts/dock_vina.py \
             --receptor {input.receptor} \
             --ligand {input.ligand} \
@@ -265,6 +266,7 @@ rule dock_chunk:
 
     shell:
         """
+        module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
         python workflow/scripts/process_stage_chunk.py \
             --stage docking \
             --chunk {input.chunk} \

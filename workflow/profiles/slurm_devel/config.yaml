@@ -19,7 +19,6 @@ default-resources:
   slurm_partition: "devel"
   mem_mb: 4000
   cpus_per_task: 2
-  slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
 
 # Per-rule resource overrides - all 2 minutes for testing
 set-resources:
@@ -28,6 +27,7 @@ set-resources:
   # =========================================
   create_manifest:
     slurm_partition: "devel"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 32000
     cpus_per_task: 16
 
@@ -43,6 +43,7 @@ set-resources:
 
   shard_preparation:
     slurm_partition: "devel"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 8000
     cpus_per_task: 2
 
@@ -61,24 +62,24 @@ set-resources:
   # =========================================
   dock_ligand_gpu:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "'--clusters=htc'"
     mem_mb: 8000
     cpus_per_task: 2
 
   dock_ligand_cpu:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
     mem_mb: 16000
     cpus_per_task: 8
 
   shard_docking:
     slurm_partition: "devel"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
 
   dock_chunk:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "'--clusters=htc'"
     mem_mb: 8000
     cpus_per_task: 2
 
@@ -102,6 +103,7 @@ set-resources:
 
   shard_conversion:
     slurm_partition: "devel"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
 
@@ -125,12 +127,13 @@ set-resources:
 
   shard_aev_plig_csv:
     slurm_partition: "devel"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
 
   run_aev_plig_shard:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=END,FAIL'"
+    slurm_extra: "'--clusters=htc'"
     mem_mb: 8000
     cpus_per_task: 2
 
