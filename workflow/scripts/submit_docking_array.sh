@@ -52,11 +52,13 @@ fi
 array_end=$((chunk_count - 1))
 
 if [[ -n "$config_path" ]]; then
-    docking_mode=$(python - <<'PY'
+    docking_mode=$(python - "$config_path" <<'PY'
 import sys
 import yaml
 from pathlib import Path
 
+if len(sys.argv) < 2:
+    raise SystemExit("Missing config path")
 cfg_path = Path(sys.argv[1])
 with cfg_path.open() as handle:
     cfg = yaml.safe_load(handle)
@@ -77,11 +79,13 @@ fi
 
 partition=""
 if [[ "${config_path:-}" != "" ]]; then
-    mode=$(python - <<'PY'
+    mode=$(python - "$config_path" <<'PY'
 import sys
 import yaml
 from pathlib import Path
 
+if len(sys.argv) < 2:
+    raise SystemExit("Missing config path")
 cfg_path = Path(sys.argv[1])
 with cfg_path.open() as handle:
     cfg = yaml.safe_load(handle)
