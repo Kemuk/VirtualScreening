@@ -56,20 +56,7 @@ if [[ -n "$config_path" ]]; then
         echo "Config not readable: $config_path" >&2
         exit 1
     fi
-    docking_mode=$(python - "$config_path" <<'PY'
-import sys
-import yaml
-from pathlib import Path
-
-if len(sys.argv) < 2:
-    raise SystemExit("Missing config path")
-cfg_path = Path(sys.argv[1])
-with cfg_path.open() as handle:
-    cfg = yaml.safe_load(handle)
-
-print(cfg.get("docking", {}).get("mode", "cpu"))
-PY
-)
+    docking_mode=$(python -c 'import sys,yaml; cfg=yaml.safe_load(open(sys.argv[1])); print(cfg.get("docking", {}).get("mode", "cpu"))' "$config_path")
 else
     docking_mode="cpu"
 fi
@@ -83,20 +70,7 @@ fi
 
 partition=""
 if [[ "${config_path:-}" != "" ]]; then
-    mode=$(python - "$config_path" <<'PY'
-import sys
-import yaml
-from pathlib import Path
-
-if len(sys.argv) < 2:
-    raise SystemExit("Missing config path")
-cfg_path = Path(sys.argv[1])
-    with cfg_path.open() as handle:
-        cfg = yaml.safe_load(handle)
-
-    print(cfg.get("mode", "production"))
-PY
-)
+    mode=$(python -c 'import sys,yaml; cfg=yaml.safe_load(open(sys.argv[1])); print(cfg.get("mode", "production"))' "$config_path")
     if [[ "$mode" == "devel" ]]; then
         partition="--partition=devel"
     fi
