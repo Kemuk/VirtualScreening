@@ -42,7 +42,7 @@ rule compute_results:
     """
     input:
         manifest = MANIFEST_PATH,
-        rescoring_done = "data/logs/rescoring/aev_plig_complete.done",
+        rescoring_done = "data/logs/rescoring/rescoring_checkpoint.done",
 
     output:
         per_target = f"{RESULTS_DIR}/per_target_metrics.csv",

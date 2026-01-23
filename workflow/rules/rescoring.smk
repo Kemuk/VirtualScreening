@@ -6,14 +6,15 @@ Snakemake rules for AEV-PLIG machine learning-based rescoring.
 AEV-PLIG rescoring workflow:
   1. Prepare CSV with docking scores and file paths
   2. Shard CSV for parallel processing
-  3. Run AEV-PLIG neural network on each shard
+  3. Submit SLURM array job for AEV-PLIG predictions (GPU)
   4. Merge predictions
   5. Update manifest with rescoring results
 
 Rules:
   - prepare_aev_plig_input: Create AEV-PLIG input CSV
   - shard_aev_plig_csv: Split CSV into shards
-  - run_aev_plig_shard: Run prediction on single shard
+  - aev_plig_array: Submit SLURM array for GPU predictions
+  - run_aev_plig_shard: Run prediction on single shard (local testing)
   - merge_aev_plig_predictions: Combine shard outputs
   - update_manifest_aev_plig: Update manifest with predictions
   - rescore_all: Complete rescoring stage
@@ -128,9 +129,49 @@ rule shard_aev_plig_csv:
         """
 
 
+rule aev_plig_array:
+    """
+    Submit a SLURM array to run AEV-PLIG predictions on all shards.
+
+    Uses GPU-accelerated processing on the htc cluster.
+    """
+    input:
+        shards = expand("AEV-PLIG/data/shards/lit_pcba_shard_{shard}.csv", shard=SHARDS),
+
+    output:
+        touch("data/logs/rescoring/aev_plig_array.done")
+
+    log:
+        "data/logs/rescoring/aev_plig_array.log"
+
+    params:
+        mode = config.get("mode", "production"),
+        model = AEV_PLIG_MODEL,
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        mkdir -p AEV-PLIG/output/shards
+        bash workflow/scripts/submit_aev_plig_array.sh \
+            --shards-dir AEV-PLIG/data/shards \
+            --output-dir AEV-PLIG/output/shards \
+            --log-dir data/logs/rescoring \
+            --slurm-log-dir data/logs/slurm \
+            --config config/config.yaml \
+            --mode {params.mode} \
+            --model {params.model} \
+            2>&1 | tee {log}
+        """
+
+
 rule run_aev_plig_shard:
     """
     Run AEV-PLIG neural network predictions on a single shard.
+
+    NOTE: This rule is kept for local/manual testing. For cluster execution,
+    use aev_plig_array which submits a SLURM array job.
 
     Executes the AEV-PLIG model on one shard of data.
     Output contains predictions from 10 model ensembles plus final prediction.
@@ -172,7 +213,7 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
+        array_done = "data/logs/rescoring/aev_plig_array.done",
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
@@ -180,13 +221,21 @@ rule merge_aev_plig_predictions:
     log:
         "data/logs/rescoring/merge_aev_plig_predictions.log"
 
+    params:
+        shards_dir = "AEV-PLIG/output/shards",
+        num_shards = NUM_SHARDS,
+
     run:
         import pandas as pd
+        from pathlib import Path
 
-        print(f"Merging {len(input.shards)} shard predictions...")
+        shards_dir = Path(params.shards_dir)
+        shard_files = [shards_dir / f"shard_{i}_predictions.csv" for i in range(params.num_shards)]
+
+        print(f"Merging {len(shard_files)} shard predictions...")
 
         dfs = []
-        for shard_file in input.shards:
+        for shard_file in shard_files:
             try:
                 df = pd.read_csv(shard_file)
                 dfs.append(df)
@@ -218,7 +267,7 @@ rule update_manifest_aev_plig:
         predictions = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
 
     output:
-        done = touch("data/logs/rescoring/aev_plig_complete.done"),
+        done = touch("data/logs/rescoring/rescoring_checkpoint.done"),
 
     log:
         "data/logs/rescoring/update_manifest_aev_plig.log"
@@ -286,7 +335,7 @@ rule rescore_all:
       5. Update manifest with predictions
     """
     input:
-        "data/logs/rescoring/aev_plig_complete.done"
+        "data/logs/rescoring/rescoring_checkpoint.done"
 
     message:
         "AEV-PLIG rescoring complete!"

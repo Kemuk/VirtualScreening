@@ -13,6 +13,7 @@ slurm-logdir: "data/logs/slurm"
 
 # Default resources (applied to all rules unless overridden)
 default-resources:
+  slurm_job_name: "vs-{rule}"
   mem_mb: 8000
   runtime: 30                      # minutes
   cpus_per_task: 4
@@ -127,6 +128,12 @@ set-resources:
     runtime: 10
     mem_mb: 16000
     cpus_per_task: 4
+
+  aev_plig_array:
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    runtime: 480                   # 8 hours (waits for array to complete)
+    mem_mb: 4000
+    cpus_per_task: 1
 
   run_aev_plig_shard:
     slurm_extra: "'--clusters=htc'"

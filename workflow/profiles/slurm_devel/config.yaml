@@ -17,6 +17,7 @@ slurm-logdir: "data/logs/slurm"
 # Default resources - use devel partition with short times
 default-resources:
   slurm_partition: "devel"
+  slurm_job_name: "vs-{rule}"
   mem_mb: 4000
   cpus_per_task: 2
   runtime: 10
@@ -131,6 +132,12 @@ set-resources:
     slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
+
+  aev_plig_array:
+    slurm_partition: "devel"
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    mem_mb: 2000
+    cpus_per_task: 1
 
   run_aev_plig_shard:
     slurm_partition: "devel"
