@@ -92,26 +92,32 @@ rule shard_preparation:
         """
 
 
-rule prepare_ligand_chunk:
-    """Prepare ligands for a single chunk."""
+rule prepare_array:
+    """Submit a SLURM array to prepare all chunks."""
     input:
-        chunk = "data/chunks/preparation/chunk_{chunk}.csv"
+        expand("data/chunks/preparation/chunk_{chunk}.csv", chunk=PREP_CHUNK_IDS)
 
     output:
-        results = "data/results/preparation/chunk_{chunk}.csv"
+        touch("data/logs/preparation/preparation_array.done")
 
     log:
-        "data/logs/preparation/prepare_ligand_chunk_{chunk}.log"
+        "data/logs/preparation/preparation_array.log"
 
     conda:
         "../envs/vscreen.yaml"
 
+    params:
+        mode = config.get("mode", "production"),
+
     shell:
         """
-        python workflow/scripts/process_stage_chunk.py \
-            --stage preparation \
-            --chunk {input.chunk} \
-            --output {output.results} \
+        bash workflow/scripts/submit_preparation_array.sh \
+            --chunks-dir data/chunks/preparation \
+            --results-dir data/results/preparation \
+            --log-dir data/logs/preparation \
+            --slurm-log-dir data/logs/slurm \
+            --config config/config.yaml \
+            --mode {params.mode} \
             2>&1 | tee {log}
         """
 
@@ -120,7 +126,7 @@ rule merge_preparation_results:
     """Merge preparation chunk results into the manifest."""
     input:
         manifest = MANIFEST_PATH,
-        results = expand("data/results/preparation/chunk_{chunk}.csv", chunk=PREP_CHUNK_IDS),
+        array_done = "data/logs/preparation/preparation_array.done",
 
     output:
         touch("data/logs/preparation/ligands_checkpoint.done")
