@@ -33,6 +33,14 @@ STAGE_COLUMNS = {
         "docked_pdbqt_path",
         "docked_sdf_path",
     ],
+    "rescoring": [
+        "compound_key",
+        "vina_score",
+        "docked_sdf_path",
+        "receptor_pdb_path",
+        "rescoring_status",
+        "aev_plig_best_score",
+    ],
 }
 
 
@@ -48,6 +56,15 @@ def add_conversion_status(df: pl.DataFrame) -> pl.DataFrame:
     paths = df.get_column("docked_sdf_path").to_list()
     statuses = [Path(path).exists() if path else False for path in paths]
     return df.with_columns(pl.Series("conversion_status", statuses))
+
+
+def add_rescoring_fields(df: pl.DataFrame) -> pl.DataFrame:
+    """Ensure rescoring fields exist for filtering."""
+    if "rescoring_status" not in df.columns:
+        df = df.with_columns(pl.lit(False).alias("rescoring_status"))
+    if "aev_plig_best_score" not in df.columns:
+        df = df.with_columns(pl.lit(None).alias("aev_plig_best_score"))
+    return df
 
 
 def filter_stage(df: pl.DataFrame, stage: str, include_done: bool = False) -> pl.DataFrame:
@@ -66,6 +83,17 @@ def filter_stage(df: pl.DataFrame, stage: str, include_done: bool = False) -> pl
         return df.filter(
             (pl.col("docking_status") == True)
             & (pl.col("conversion_status") == False)
+        )
+    if stage == "rescoring":
+        df = add_conversion_status(df)
+        df = add_rescoring_fields(df)
+        return df.filter(
+            (pl.col("docking_status") == True)
+            & (pl.col("conversion_status") == True)
+            & (
+                (pl.col("rescoring_status") == False)
+                | (pl.col("aev_plig_best_score").is_null())
+            )
         )
     raise ValueError(f"Unknown stage: {stage}")
 

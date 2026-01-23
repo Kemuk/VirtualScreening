@@ -4,15 +4,15 @@ rescoring.smk
 Snakemake rules for AEV-PLIG machine learning-based rescoring.
 
 AEV-PLIG rescoring workflow:
-  1. Prepare CSV with docking scores and file paths
-  2. Shard CSV for parallel processing
+  1. Shard manifest entries needing rescoring
+  2. Build AEV-PLIG shard CSVs from rescoring chunks
   3. Submit SLURM array job for AEV-PLIG predictions (GPU)
   4. Merge predictions
   5. Update manifest with rescoring results
 
 Rules:
-  - prepare_aev_plig_input: Create AEV-PLIG input CSV
-  - shard_aev_plig_csv: Split CSV into shards
+  - shard_rescoring: Create rescoring chunk CSVs from manifest
+  - prepare_aev_plig_shard: Build AEV-PLIG shard CSVs from rescoring chunks
   - aev_plig_array: Submit SLURM array for GPU predictions
   - run_aev_plig_shard: Run prediction on single shard (local testing)
   - merge_aev_plig_predictions: Combine shard outputs
@@ -20,6 +20,7 @@ Rules:
   - rescore_all: Complete rescoring stage
 """
 
+import os
 import pandas as pd
 
 
@@ -43,6 +44,10 @@ SHARDS = list(range(NUM_SHARDS))
 # AEV-PLIG settings
 AEV_PLIG_DIR = config.get('tools', {}).get('aev_plig_dir', 'AEV-PLIG')
 AEV_PLIG_MODEL = config.get('rescoring', {}).get('model_name', 'model_GATv2Net_ligsim90_fep_benchmark')
+AEV_PLIG_CONDA = os.environ.get(
+    "AEV_PLIG_CONDA",
+    os.path.join(os.environ["DATA"], "aev-plig") if os.environ.get("DATA") else "aev-plig",
+)
 
 
 # =============================================================================
@@ -69,62 +74,58 @@ def get_targets_needing_rescoring():
 # AEV-PLIG Full Pipeline with Sharding
 # =============================================================================
 
-rule prepare_aev_plig_input:
+rule shard_rescoring:
     """
-    Generate AEV-PLIG input CSV from manifest.
-
-    Creates CSV with format: unique_id,pK,sdf_file,pdb_file
-    Where unique_id is the compound_key from manifest.
+    Create rescoring chunk CSVs from the manifest (only missing AEV-PLIG scores).
     """
     input:
         manifest = MANIFEST_PATH,
         conversion_checkpoint = "data/logs/conversion/conversion_checkpoint.done",
 
     output:
-        csv = "AEV-PLIG/data/lit_pcba.csv",
+        expand("data/chunks/rescoring/chunk_{chunk}.csv", chunk=SHARDS),
 
     log:
-        "data/logs/rescoring/prepare_aev_plig_input.log"
+        "data/logs/rescoring/shard_rescoring.log"
+
+    params:
+        num_chunks = NUM_SHARDS,
 
     conda:
         "../envs/vscreen.yaml"
 
     shell:
         """
-        python workflow/scripts/prepare_aev_plig_csv.py \
+        python workflow/scripts/shard_stage.py \
+            --stage rescoring \
             --manifest {input.manifest} \
-            --output {output.csv} \
+            --outdir data/chunks/rescoring \
+            --num-chunks {params.num_chunks} \
             2>&1 | tee {log}
         """
 
 
-rule shard_aev_plig_csv:
+rule prepare_aev_plig_shard:
     """
-    Split AEV-PLIG input CSV into shards for parallel processing.
+    Build AEV-PLIG shard CSVs from rescoring chunks.
     """
     input:
-        csv = "AEV-PLIG/data/lit_pcba.csv",
+        chunk = "data/chunks/rescoring/chunk_{shard}.csv",
 
     output:
-        shards = expand("AEV-PLIG/data/shards/lit_pcba_shard_{shard}.csv", shard=SHARDS),
+        shard = "AEV-PLIG/data/shards/lit_pcba_shard_{shard}.csv",
 
     log:
-        "data/logs/rescoring/shard_aev_plig_csv.log"
-
-    params:
-        num_shards = NUM_SHARDS,
-        outdir = "AEV-PLIG/data/shards",
+        "data/logs/rescoring/prepare_aev_plig_shard_{shard}.log"
 
     conda:
         "../envs/vscreen.yaml"
 
     shell:
         """
-        python workflow/scripts/shard_csv.py \
-            --input {input.csv} \
-            --num-shards {params.num_shards} \
-            --outdir {params.outdir} \
-            --prefix lit_pcba \
+        python workflow/scripts/prepare_aev_plig_shard.py \
+            --chunk {input.chunk} \
+            --output {output.shard} \
             2>&1 | tee {log}
         """
 
@@ -149,7 +150,7 @@ rule aev_plig_array:
         model = AEV_PLIG_MODEL,
 
     conda:
-        "../envs/vscreen.yaml"
+        AEV_PLIG_CONDA
 
     shell:
         """
@@ -189,6 +190,9 @@ rule run_aev_plig_shard:
         aev_plig_dir = AEV_PLIG_DIR,
         model = AEV_PLIG_MODEL,
         shard = lambda wildcards: wildcards.shard,
+
+    conda:
+        AEV_PLIG_CONDA
 
     shell:
         """
@@ -308,6 +312,9 @@ rule run_aev_plig_single:
         aev_plig_dir = AEV_PLIG_DIR,
         model = AEV_PLIG_MODEL,
 
+    conda:
+        AEV_PLIG_CONDA
+
     shell:
         """
         cd {params.aev_plig_dir} && \
@@ -328,8 +335,8 @@ rule rescore_all:
     Complete rescoring stage with sharded AEV-PLIG predictions.
 
     This runs the full AEV-PLIG pipeline:
-      1. Prepare input CSV from manifest
-      2. Shard CSV for parallel processing
+      1. Shard manifest rows needing rescoring
+      2. Prepare AEV-PLIG shard CSVs
       3. Run AEV-PLIG neural network on each shard
       4. Merge predictions
       5. Update manifest with predictions
@@ -343,20 +350,20 @@ rule rescore_all:
 
 rule rescore_prepare_only:
     """
-    Only prepare AEV-PLIG input (no predictions).
+    Only create rescoring chunk CSVs (no predictions).
 
-    Useful for debugging or manual prediction runs.
+    Useful for debugging which ligands are selected for rescoring.
     """
     input:
-        "AEV-PLIG/data/lit_pcba.csv"
+        expand("data/chunks/rescoring/chunk_{chunk}.csv", chunk=SHARDS)
 
     message:
-        "AEV-PLIG input CSV prepared!"
+        "Rescoring chunks prepared!"
 
 
 rule rescore_shards_only:
     """
-    Prepare and shard AEV-PLIG input (no predictions).
+    Prepare AEV-PLIG shard CSVs (no predictions).
 
     Useful for debugging or manual prediction runs.
     """
