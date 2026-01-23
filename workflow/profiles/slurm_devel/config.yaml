@@ -14,10 +14,12 @@ printshellcmds: true
 keep-going: false                  # Stop on first failure during testing
 slurm-logdir: "data/logs/slurm"
 
+# Job naming - use rule name for descriptive squeue output
+job-name: "vs-{rule}"
+
 # Default resources - use devel partition with short times
 default-resources:
   slurm_partition: "devel"
-  slurm_job_name: "vs-{rule}"
   mem_mb: 4000
   cpus_per_task: 2
   runtime: 10
