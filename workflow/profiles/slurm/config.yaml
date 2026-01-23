@@ -12,7 +12,7 @@ keep-going: true                   # Continue with independent jobs on failure
 slurm-logdir: "data/logs/slurm"
 
 # Job naming - use rule name for descriptive squeue output
-job-name: "vs-{rule}"
+jobname: "vs-{rule}"
 
 # Default resources (applied to all rules unless overridden)
 default-resources:

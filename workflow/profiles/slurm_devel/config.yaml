@@ -15,7 +15,7 @@ keep-going: false                  # Stop on first failure during testing
 slurm-logdir: "data/logs/slurm"
 
 # Job naming - use rule name for descriptive squeue output
-job-name: "vs-{rule}"
+jobname: "vs-{rule}"
 
 # Default resources - use devel partition with short times
 default-resources:
