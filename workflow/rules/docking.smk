@@ -264,6 +264,10 @@ rule dock_array:
     conda:
         "../envs/vscreen.yaml"
 
+    params:
+        mode = config.get("mode", "production"),
+        docking_mode = config.get("docking", {}).get("mode", "cpu"),
+
     shell:
         """
         bash workflow/scripts/submit_docking_array.sh \
@@ -272,6 +276,8 @@ rule dock_array:
             --log-dir data/logs/docking \
             --slurm-log-dir data/logs/slurm \
             --config config/config.yaml \
+            --mode {params.mode} \
+            --docking-mode {params.docking_mode} \
             2>&1 | tee {log}
         """
 

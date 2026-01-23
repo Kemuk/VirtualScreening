@@ -6,6 +6,8 @@ results_dir=""
 log_dir=""
 slurm_log_dir=""
 config_path=""
+mode="production"
+docking_mode="cpu"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -29,6 +31,14 @@ while [[ $# -gt 0 ]]; do
             config_path="$2"
             shift 2
             ;;
+        --mode)
+            mode="$2"
+            shift 2
+            ;;
+        --docking-mode)
+            docking_mode="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             exit 1
@@ -37,7 +47,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$chunks_dir" || -z "$results_dir" || -z "$log_dir" || -z "$slurm_log_dir" ]]; then
-    echo "Usage: $0 --chunks-dir DIR --results-dir DIR --log-dir DIR --slurm-log-dir DIR [--config PATH]"
+    echo "Usage: $0 --chunks-dir DIR --results-dir DIR --log-dir DIR --slurm-log-dir DIR [--config PATH] [--mode MODE] [--docking-mode MODE]"
     exit 1
 fi
 
@@ -51,14 +61,9 @@ fi
 
 array_end=$((chunk_count - 1))
 
-if [[ -n "$config_path" ]]; then
-    if [[ ! -r "$config_path" ]]; then
-        echo "Config not readable: $config_path" >&2
-        exit 1
-    fi
-    docking_mode=$(python -c 'import sys,yaml; cfg=yaml.safe_load(open(sys.argv[1])); print(cfg.get("docking", {}).get("mode", "cpu"))' "$config_path")
-else
-    docking_mode="cpu"
+if [[ -n "$config_path" && ! -r "$config_path" ]]; then
+    echo "Config not readable: $config_path" >&2
+    exit 1
 fi
 
 cluster="arc"
@@ -69,11 +74,8 @@ if [[ "$docking_mode" == "gpu" ]]; then
 fi
 
 partition=""
-if [[ "${config_path:-}" != "" ]]; then
-    mode=$(python -c 'import sys,yaml; cfg=yaml.safe_load(open(sys.argv[1])); print(cfg.get("mode", "production"))' "$config_path")
-    if [[ "$mode" == "devel" ]]; then
-        partition="--partition=devel"
-    fi
+if [[ "$mode" == "devel" ]]; then
+    partition="--partition=devel"
 fi
 
 array_job_raw=$(sbatch --parsable --array=0-"$array_end" \
