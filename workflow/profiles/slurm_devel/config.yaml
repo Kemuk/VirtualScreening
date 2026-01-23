@@ -19,6 +19,7 @@ default-resources:
   slurm_partition: "devel"
   mem_mb: 4000
   cpus_per_task: 2
+  runtime: 10
 
 # Per-rule resource overrides - all 2 minutes for testing
 set-resources:
