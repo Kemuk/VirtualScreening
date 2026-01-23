@@ -31,7 +31,7 @@ DEVEL_FLAG = "--devel" if DEVEL else ""
 
 # Paths
 MANIFEST_PATH = Path(config['manifest_dir']) / 'manifest.parquet'
-LOGS_DIR = Path("data/slurm/logs")
+LOGS_DIR = Path("data/logs/slurm")
 
 
 # =============================================================================
@@ -41,7 +41,7 @@ LOGS_DIR = Path("data/slurm/logs")
 rule all:
     """Complete the full pipeline using SLURM array jobs."""
     input:
-        "data/slurm/logs/results.done"
+        "data/logs/slurm/results.done"
     message:
         "Virtual screening pipeline complete!"
 
@@ -53,9 +53,9 @@ rule all:
 rule stage_manifest:
     """Generate master manifest from targets.yaml."""
     output:
-        touch("data/slurm/logs/manifest.done")
+        touch("data/logs/slurm/manifest.done")
     log:
-        "data/slurm/logs/manifest.log"
+        "data/logs/slurm/manifest.log"
     shell:
         """
         python -m workflow.slurm.run --stage manifest {DEVEL_FLAG} 2>&1 | tee {log}
@@ -65,11 +65,11 @@ rule stage_manifest:
 rule stage_receptors:
     """Prepare receptor PDBQT files for each target."""
     input:
-        "data/slurm/logs/manifest.done"
+        "data/logs/slurm/manifest.done"
     output:
-        touch("data/slurm/logs/receptors.done")
+        touch("data/logs/slurm/receptors.done")
     log:
-        "data/slurm/logs/receptors.log"
+        "data/logs/slurm/receptors.log"
     shell:
         """
         python -m workflow.slurm.run --stage receptors {DEVEL_FLAG} 2>&1 | tee {log}
@@ -79,11 +79,11 @@ rule stage_receptors:
 rule stage_ligands:
     """Prepare ligand PDBQT files from SMILES."""
     input:
-        "data/slurm/logs/receptors.done"
+        "data/logs/slurm/receptors.done"
     output:
-        touch("data/slurm/logs/ligands.done")
+        touch("data/logs/slurm/ligands.done")
     log:
-        "data/slurm/logs/ligands.log"
+        "data/logs/slurm/ligands.log"
     shell:
         """
         python -m workflow.slurm.run --stage ligands {DEVEL_FLAG} 2>&1 | tee {log}
@@ -93,11 +93,11 @@ rule stage_ligands:
 rule stage_docking:
     """Dock all ligands to their target receptors."""
     input:
-        "data/slurm/logs/ligands.done"
+        "data/logs/slurm/ligands.done"
     output:
-        touch("data/slurm/logs/docking.done")
+        touch("data/logs/slurm/docking.done")
     log:
-        "data/slurm/logs/docking.log"
+        "data/logs/slurm/docking.log"
     shell:
         """
         python -m workflow.slurm.run --stage docking {DEVEL_FLAG} 2>&1 | tee {log}
@@ -107,11 +107,11 @@ rule stage_docking:
 rule stage_conversion:
     """Convert docked PDBQT files to SDF format."""
     input:
-        "data/slurm/logs/docking.done"
+        "data/logs/slurm/docking.done"
     output:
-        touch("data/slurm/logs/conversion.done")
+        touch("data/logs/slurm/conversion.done")
     log:
-        "data/slurm/logs/conversion.log"
+        "data/logs/slurm/conversion.log"
     shell:
         """
         python -m workflow.slurm.run --stage conversion {DEVEL_FLAG} 2>&1 | tee {log}
@@ -121,11 +121,11 @@ rule stage_conversion:
 rule stage_aev_prep:
     """Prepare data for AEV-PLIG rescoring."""
     input:
-        "data/slurm/logs/conversion.done"
+        "data/logs/slurm/conversion.done"
     output:
-        touch("data/slurm/logs/aev_prep.done")
+        touch("data/logs/slurm/aev_prep.done")
     log:
-        "data/slurm/logs/aev_prep.log"
+        "data/logs/slurm/aev_prep.log"
     shell:
         """
         python -m workflow.slurm.run --stage aev_prep {DEVEL_FLAG} 2>&1 | tee {log}
@@ -135,11 +135,11 @@ rule stage_aev_prep:
 rule stage_aev_infer:
     """Run AEV-PLIG neural network rescoring."""
     input:
-        "data/slurm/logs/aev_prep.done"
+        "data/logs/slurm/aev_prep.done"
     output:
-        touch("data/slurm/logs/aev_infer.done")
+        touch("data/logs/slurm/aev_infer.done")
     log:
-        "data/slurm/logs/aev_infer.log"
+        "data/logs/slurm/aev_infer.log"
     shell:
         """
         python -m workflow.slurm.run --stage aev_infer {DEVEL_FLAG} 2>&1 | tee {log}
@@ -149,11 +149,11 @@ rule stage_aev_infer:
 rule stage_aev_merge:
     """Merge AEV-PLIG predictions and update manifest."""
     input:
-        "data/slurm/logs/aev_infer.done"
+        "data/logs/slurm/aev_infer.done"
     output:
-        touch("data/slurm/logs/aev_merge.done")
+        touch("data/logs/slurm/aev_merge.done")
     log:
-        "data/slurm/logs/aev_merge.log"
+        "data/logs/slurm/aev_merge.log"
     shell:
         """
         python -m workflow.slurm.run --stage aev_merge {DEVEL_FLAG} 2>&1 | tee {log}
@@ -163,11 +163,11 @@ rule stage_aev_merge:
 rule stage_results:
     """Compute metrics and generate plots."""
     input:
-        "data/slurm/logs/aev_merge.done"
+        "data/logs/slurm/aev_merge.done"
     output:
-        touch("data/slurm/logs/results.done")
+        touch("data/logs/slurm/results.done")
     log:
-        "data/slurm/logs/results.log"
+        "data/logs/slurm/results.log"
     shell:
         """
         python -m workflow.slurm.run --stage results {DEVEL_FLAG} 2>&1 | tee {log}
@@ -181,7 +181,7 @@ rule stage_results:
 rule clean_slurm_logs:
     """Remove SLURM orchestrator logs."""
     shell:
-        "rm -rf data/slurm/logs/*.done data/slurm/logs/*.log"
+        "rm -rf data/logs/slurm/*.done data/logs/slurm/*.log"
 
 
 rule clean_slurm_all:
