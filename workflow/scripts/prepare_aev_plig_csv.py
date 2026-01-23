@@ -86,7 +86,8 @@ def prepare_aev_plig_csv(
         print("ERROR: No ligands with valid SDF files found", file=sys.stderr)
         return 0
 
-    # Check for valid Vina scores
+    # Check for valid Vina scores (must be numeric)
+    valid['vina_score'] = pd.to_numeric(valid['vina_score'], errors='coerce')
     valid = valid[valid['vina_score'].notna()].copy()
     print(f"  With valid Vina scores: {len(valid)}")
 
@@ -169,13 +170,24 @@ def process_batch(items: list, config: dict) -> list:
                 })
                 continue
 
-            # Check for valid Vina score
+            # Check for valid Vina score (must be numeric)
             vina_score = item.get('vina_score')
             if vina_score is None or pd.isna(vina_score):
                 results.append({
                     'ligand_id': ligand_id,
                     'success': False,
                     'error': 'No Vina score',
+                })
+                continue
+
+            # Convert to numeric if needed
+            try:
+                vina_score = float(vina_score)
+            except (ValueError, TypeError):
+                results.append({
+                    'ligand_id': ligand_id,
+                    'success': False,
+                    'error': f'Invalid Vina score: {vina_score}',
                 })
                 continue
 

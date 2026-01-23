@@ -11,6 +11,9 @@ printshellcmds: true
 keep-going: true                   # Continue with independent jobs on failure
 slurm-logdir: "data/logs/slurm"
 
+# Job naming - use rule name for descriptive squeue output
+jobname: "vs-{rule}"
+
 # Default resources (applied to all rules unless overridden)
 default-resources:
   mem_mb: 8000
@@ -127,6 +130,12 @@ set-resources:
     runtime: 10
     mem_mb: 16000
     cpus_per_task: 4
+
+  aev_plig_array:
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    runtime: 480                   # 8 hours (waits for array to complete)
+    mem_mb: 4000
+    cpus_per_task: 1
 
   run_aev_plig_shard:
     slurm_extra: "'--clusters=htc'"
