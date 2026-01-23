@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=docking-array
-#SBATCH --time=02:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=2
 
