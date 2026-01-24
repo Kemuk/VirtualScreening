@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
+module load Boost/1.77.0-GCC-11.2.0 || true
 
 PROJECT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 AEV_PLIG_DIR="${PROJECT_DIR}/AEV-PLIG"
