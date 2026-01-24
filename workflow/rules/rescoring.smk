@@ -107,6 +107,9 @@ rule shard_rescoring:
 rule prepare_aev_plig_shard:
     """
     Build AEV-PLIG shard CSVs from rescoring chunks.
+
+    NOTE: Kept for local/manual testing. For cluster execution, use
+    prepare_aev_plig_array to submit an array job.
     """
     input:
         chunk = "data/chunks/rescoring/chunk_{shard}.csv",
@@ -129,6 +132,38 @@ rule prepare_aev_plig_shard:
         """
 
 
+rule prepare_aev_plig_array:
+    """
+    Submit a SLURM array to build AEV-PLIG shard CSVs from rescoring chunks.
+    """
+    input:
+        expand("data/chunks/rescoring/chunk_{chunk}.csv", chunk=SHARDS),
+
+    output:
+        touch("data/logs/rescoring/prepare_aev_plig_array.done")
+
+    log:
+        "data/logs/rescoring/prepare_aev_plig_array.log"
+
+    params:
+        mode = config.get("mode", "production"),
+
+    conda:
+        "../envs/vscreen.yaml"
+
+    shell:
+        """
+        bash workflow/scripts/submit_prepare_aev_plig_array.sh \
+            --chunks-dir data/chunks/rescoring \
+            --output-dir AEV-PLIG/data/shards \
+            --log-dir data/logs/rescoring \
+            --slurm-log-dir data/logs/slurm \
+            --config config/config.yaml \
+            --mode {params.mode} \
+            2>&1 | tee {log}
+        """
+
+
 rule aev_plig_array:
     """
     Submit a SLURM array to run AEV-PLIG predictions on all shards.
@@ -136,7 +171,7 @@ rule aev_plig_array:
     Uses GPU-accelerated processing on the htc cluster.
     """
     input:
-        shards = expand("AEV-PLIG/data/shards/lit_pcba_shard_{shard}.csv", shard=SHARDS),
+        shards_done = "data/logs/rescoring/prepare_aev_plig_array.done",
 
     output:
         touch("data/logs/rescoring/aev_plig_array.done")
@@ -367,7 +402,7 @@ rule rescore_shards_only:
     Useful for debugging or manual prediction runs.
     """
     input:
-        expand("AEV-PLIG/data/shards/lit_pcba_shard_{shard}.csv", shard=SHARDS)
+        "data/logs/rescoring/prepare_aev_plig_array.done"
 
     message:
         "AEV-PLIG shards prepared!"
