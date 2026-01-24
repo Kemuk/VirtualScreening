@@ -20,11 +20,13 @@ else
     resolved_aev_plig_env="/data/stat-cadd/reub0582/aev-plig"
 fi
 
-if [[ -f "${resolved_aev_plig_env}/bin/activate" ]]; then
-    # shellcheck disable=SC1090
-    source "${resolved_aev_plig_env}/bin/activate"
-else
+if [[ ! -d "${resolved_aev_plig_env}" ]]; then
     echo "AEV-PLIG environment not found at ${resolved_aev_plig_env}" >&2
+    exit 1
+fi
+
+if ! command -v conda >/dev/null 2>&1; then
+    echo "conda is not available on PATH; cannot run AEV-PLIG with conda run." >&2
     exit 1
 fi
 
@@ -41,7 +43,7 @@ mkdir -p "$OUTPUT_DIR"
 
 cd "$AEV_PLIG_DIR"
 
-python process_and_predict.py \
+conda run -p "${resolved_aev_plig_env}" python process_and_predict.py \
     --dataset_csv="data/shards/lit_pcba_shard_${shard_id}.csv" \
     --data_name="shard_${shard_id}" \
     --trained_model_name="${MODEL_NAME}"
