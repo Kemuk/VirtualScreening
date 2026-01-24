@@ -74,6 +74,8 @@ def get_targets_needing_rescoring():
 # AEV-PLIG Full Pipeline with Sharding
 # =============================================================================
 
+ruleorder: aev_plig_array > run_aev_plig_shard
+
 rule shard_rescoring:
     """
     Create rescoring chunk CSVs from the manifest (only missing AEV-PLIG scores).
@@ -174,7 +176,8 @@ rule aev_plig_array:
         shards_done = "data/logs/rescoring/prepare_aev_plig_array.done",
 
     output:
-        touch("data/logs/rescoring/aev_plig_array.done")
+        done = touch("data/logs/rescoring/aev_plig_array.done"),
+        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
 
     log:
         "data/logs/rescoring/aev_plig_array.log"
@@ -251,7 +254,7 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        "data/logs/rescoring/aev_plig_array.done",
+        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
