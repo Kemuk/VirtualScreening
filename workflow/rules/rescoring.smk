@@ -80,7 +80,6 @@ rule shard_rescoring:
     """
     input:
         manifest = MANIFEST_PATH,
-        conversion_checkpoint = "data/logs/conversion/conversion_checkpoint.done",
 
     output:
         expand("data/chunks/rescoring/chunk_{chunk}.csv", chunk=SHARDS),
