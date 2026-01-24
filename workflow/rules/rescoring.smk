@@ -185,6 +185,10 @@ rule aev_plig_array:
     params:
         mode = config.get("mode", "production"),
         model = AEV_PLIG_MODEL,
+        aev_plig_env = (
+            config.get("tools", {}).get("aev_plig_env")
+            or (os.path.join(os.environ["DATA"], "aev-plig") if os.environ.get("DATA") else "")
+        ),
 
     conda:
         AEV_PLIG_CONDA
@@ -200,6 +204,7 @@ rule aev_plig_array:
             --config config/config.yaml \
             --mode {params.mode} \
             --model {params.model} \
+            --aev-plig-env "{params.aev_plig_env}" \
             2>&1 | tee {log}
         """
 

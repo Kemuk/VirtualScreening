@@ -12,13 +12,19 @@ AEV_PLIG_DIR="${PROJECT_DIR}/AEV-PLIG"
 SHARDS_DIR="${SHARDS_DIR:-${AEV_PLIG_DIR}/data/shards}"
 OUTPUT_DIR="${OUTPUT_DIR:-${AEV_PLIG_DIR}/output/shards}"
 MODEL_NAME="${MODEL_NAME:-model_GATv2Net_ligsim90_fep_benchmark}"
-AEV_PLIG_ENV="${AEV_PLIG_ENV:-/data/stat-cadd/reub0582/aev-plig}"
-
-if [[ -f "${AEV_PLIG_ENV}/bin/activate" ]]; then
-    # shellcheck disable=SC1090
-    source "${AEV_PLIG_ENV}/bin/activate"
+if [[ -n "${AEV_PLIG_ENV:-}" ]]; then
+    resolved_aev_plig_env="${AEV_PLIG_ENV}"
+elif [[ -n "${DATA:-}" ]]; then
+    resolved_aev_plig_env="${DATA}/aev-plig"
 else
-    echo "AEV-PLIG environment not found at ${AEV_PLIG_ENV}" >&2
+    resolved_aev_plig_env="/data/stat-cadd/reub0582/aev-plig"
+fi
+
+if [[ -f "${resolved_aev_plig_env}/bin/activate" ]]; then
+    # shellcheck disable=SC1090
+    source "${resolved_aev_plig_env}/bin/activate"
+else
+    echo "AEV-PLIG environment not found at ${resolved_aev_plig_env}" >&2
     exit 1
 fi
 

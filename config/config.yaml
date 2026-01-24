@@ -127,6 +127,7 @@ tools:
   vina_cpu: "vina"
   obabel: "obabel"
   aev_plig_dir: "AEV-PLIG"
+  aev_plig_env: "/data/stat-cadd/reub0582/aev-plig"
 
 # =============================================================================
 # SLURM Array Job Configuration
