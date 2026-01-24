@@ -12,6 +12,15 @@ AEV_PLIG_DIR="${PROJECT_DIR}/AEV-PLIG"
 SHARDS_DIR="${SHARDS_DIR:-${AEV_PLIG_DIR}/data/shards}"
 OUTPUT_DIR="${OUTPUT_DIR:-${AEV_PLIG_DIR}/output/shards}"
 MODEL_NAME="${MODEL_NAME:-model_GATv2Net_ligsim90_fep_benchmark}"
+AEV_PLIG_ENV="${AEV_PLIG_ENV:-/data/stat-cadd/reub0582/aev-plig}"
+
+if [[ -f "${AEV_PLIG_ENV}/bin/activate" ]]; then
+    # shellcheck disable=SC1090
+    source "${AEV_PLIG_ENV}/bin/activate"
+else
+    echo "AEV-PLIG environment not found at ${AEV_PLIG_ENV}" >&2
+    exit 1
+fi
 
 shard_id="${SLURM_ARRAY_TASK_ID}"
 shard_input="${SHARDS_DIR}/lit_pcba_shard_${shard_id}.csv"
