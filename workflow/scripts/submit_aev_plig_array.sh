@@ -104,3 +104,17 @@ if [[ "$failed_tasks" -gt 0 ]]; then
 fi
 
 echo "Array job ${array_job_id} completed successfully."
+
+missing_outputs=0
+for shard_id in $(seq 0 "${array_end}"); do
+    shard_path="${output_dir}/shard_${shard_id}_predictions.csv"
+    if [[ ! -f "$shard_path" ]]; then
+        echo "Missing prediction output: ${shard_path}" >&2
+        missing_outputs=$((missing_outputs + 1))
+    fi
+done
+
+if [[ "$missing_outputs" -gt 0 ]]; then
+    echo "Missing ${missing_outputs} AEV-PLIG prediction file(s)." >&2
+    exit 1
+fi
