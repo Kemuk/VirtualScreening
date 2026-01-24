@@ -251,7 +251,7 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
+        "data/logs/rescoring/aev_plig_array.done",
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
