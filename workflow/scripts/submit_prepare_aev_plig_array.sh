@@ -1,18 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-shards_dir=""
+chunks_dir=""
 output_dir=""
 log_dir=""
 slurm_log_dir=""
 config_path=""
 mode="production"
-model_name="model_GATv2Net_ligsim90_fep_benchmark"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --shards-dir)
-            shards_dir="$2"
+        --chunks-dir)
+            chunks_dir="$2"
             shift 2
             ;;
         --output-dir)
@@ -35,10 +34,6 @@ while [[ $# -gt 0 ]]; do
             mode="$2"
             shift 2
             ;;
-        --model)
-            model_name="$2"
-            shift 2
-            ;;
         *)
             echo "Unknown option: $1"
             exit 1
@@ -46,20 +41,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$shards_dir" || -z "$output_dir" || -z "$log_dir" || -z "$slurm_log_dir" ]]; then
-    echo "Usage: $0 --shards-dir DIR --output-dir DIR --log-dir DIR --slurm-log-dir DIR [--config PATH] [--mode MODE] [--model NAME]"
+if [[ -z "$chunks_dir" || -z "$output_dir" || -z "$log_dir" || -z "$slurm_log_dir" ]]; then
+    echo "Usage: $0 --chunks-dir DIR --output-dir DIR --log-dir DIR --slurm-log-dir DIR [--config PATH] [--mode MODE]"
     exit 1
 fi
 
 mkdir -p "$output_dir" "$log_dir" "$slurm_log_dir"
 
-shard_count=$(ls "${shards_dir}"/lit_pcba_shard_*.csv 2>/dev/null | wc -l | tr -d ' ')
-if [[ "$shard_count" -eq 0 ]]; then
-    echo "No AEV-PLIG shards found in ${shards_dir}; skipping array submission."
+chunk_count=$(ls "${chunks_dir}"/chunk_*.csv 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$chunk_count" -eq 0 ]]; then
+    echo "No rescoring chunks found in ${chunks_dir}; skipping array submission."
     exit 0
 fi
 
-array_end=$((shard_count - 1))
+array_end=$((chunk_count - 1))
 
 if [[ -n "$config_path" && ! -r "$config_path" ]]; then
     echo "Config not readable: $config_path" >&2
@@ -71,25 +66,24 @@ if [[ "$mode" == "devel" ]]; then
     partition="--partition=devel"
 fi
 
-time_limit="02:00:00"
+time_limit="00:20:00"
 if [[ "$mode" == "devel" ]]; then
     time_limit="00:10:00"
 fi
 
 array_job_raw=$(sbatch --parsable --array=0-"$array_end" \
-    --job-name=vs-aev-plig-array \
+    --job-name=vs-prepare-aev-plig-array \
     --time="$time_limit" \
-    --output="${slurm_log_dir}/aev_plig_array_%A_%a.out" \
-    --error="${slurm_log_dir}/aev_plig_array_%A_%a.err" \
-    --clusters=htc \
-    --gres=gpu:1 \
+    --output="${slurm_log_dir}/prepare_aev_plig_array_%A_%a.out" \
+    --error="${slurm_log_dir}/prepare_aev_plig_array_%A_%a.err" \
+    --clusters=arc \
     $partition \
-    --export=ALL,SHARDS_DIR="${shards_dir}",OUTPUT_DIR="${output_dir}",MODEL_NAME="${model_name}" \
-    workflow/slurm/aev_plig_array.slurm)
+    --export=ALL,CHUNKS_DIR="${chunks_dir}",OUTPUT_DIR="${output_dir}",CONFIG_PATH="${config_path}" \
+    workflow/slurm/prepare_aev_plig_array.slurm)
 
 array_job_id="${array_job_raw%%;*}"
 
-echo "Submitted AEV-PLIG array job: ${array_job_id} (raw: ${array_job_raw})"
+echo "Submitted AEV-PLIG prepare array job: ${array_job_id} (raw: ${array_job_raw})"
 
 while squeue -j "$array_job_id" -h >/dev/null 2>&1; do
     sleep 10
@@ -107,14 +101,14 @@ echo "Array job ${array_job_id} completed successfully."
 
 missing_outputs=0
 for shard_id in $(seq 0 "${array_end}"); do
-    shard_path="${output_dir}/shard_${shard_id}_predictions.csv"
+    shard_path="${output_dir}/lit_pcba_shard_${shard_id}.csv"
     if [[ ! -f "$shard_path" ]]; then
-        echo "Missing prediction output: ${shard_path}" >&2
+        echo "Missing shard output: ${shard_path}" >&2
         missing_outputs=$((missing_outputs + 1))
     fi
 done
 
 if [[ "$missing_outputs" -gt 0 ]]; then
-    echo "Missing ${missing_outputs} AEV-PLIG prediction file(s)." >&2
+    echo "Missing ${missing_outputs} AEV-PLIG shard output file(s)." >&2
     exit 1
 fi
