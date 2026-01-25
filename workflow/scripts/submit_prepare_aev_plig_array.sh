@@ -55,6 +55,10 @@ if [[ "$chunk_count" -eq 0 ]]; then
 fi
 
 array_end=$((chunk_count - 1))
+array_cap=99
+if [[ "$array_end" -gt "$array_cap" ]]; then
+    array_end="$array_cap"
+fi
 
 if [[ -n "$config_path" && ! -r "$config_path" ]]; then
     echo "Config not readable: $config_path" >&2
