@@ -177,7 +177,6 @@ rule aev_plig_array:
 
     output:
         done = touch("data/logs/rescoring/aev_plig_array.done"),
-        predictions_dir = directory("AEV-PLIG/output/predictions"),
 
     log:
         "data/logs/rescoring/aev_plig_array.log"
@@ -259,7 +258,8 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        predictions_dir = directory("AEV-PLIG/output/predictions"),
+        array_done = "data/logs/rescoring/aev_plig_array.done",
+        predictions_dir = "AEV-PLIG/output/predictions",
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
