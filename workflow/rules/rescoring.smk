@@ -177,7 +177,7 @@ rule aev_plig_array:
 
     output:
         done = touch("data/logs/rescoring/aev_plig_array.done"),
-        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
+        predictions_dir = directory("AEV-PLIG/output/predictions"),
 
     log:
         "data/logs/rescoring/aev_plig_array.log"
@@ -259,7 +259,7 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        shards = expand("AEV-PLIG/output/shards/shard_{shard}_predictions.csv", shard=SHARDS),
+        predictions_dir = directory("AEV-PLIG/output/predictions"),
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
@@ -268,34 +268,24 @@ rule merge_aev_plig_predictions:
         "data/logs/rescoring/merge_aev_plig_predictions.log"
 
     params:
-        shards_dir = "AEV-PLIG/output/shards",
-        num_shards = NUM_SHARDS,
+        predictions_dir = "AEV-PLIG/output/predictions",
 
     run:
-        import pandas as pd
+        import dask.dataframe as dd
         from pathlib import Path
 
-        shards_dir = Path(params.shards_dir)
-        shard_files = [shards_dir / f"shard_{i}_predictions.csv" for i in range(params.num_shards)]
+        predictions_dir = Path(params.predictions_dir)
+        shard_files = sorted(predictions_dir.glob("*_predictions.csv"))
 
-        print(f"Merging {len(shard_files)} shard predictions...")
+        print(f"Merging {len(shard_files)} prediction files...")
 
-        dfs = []
-        for shard_file in shard_files:
-            try:
-                df = pd.read_csv(shard_file)
-                dfs.append(df)
-                print(f"  Loaded {shard_file}: {len(df)} rows")
-            except Exception as e:
-                print(f"  WARNING: Failed to load {shard_file}: {e}")
+        if not shard_files:
+            raise ValueError("No prediction files could be loaded!")
 
-        if not dfs:
-            raise ValueError("No shard files could be loaded!")
+        df = dd.read_csv([str(path) for path in shard_files])
+        df.to_csv(output.merged, single_file=True, index=False)
 
-        merged_df = pd.concat(dfs, ignore_index=True)
-        merged_df.to_csv(output.merged, index=False)
-
-        print(f"\nMerged {len(merged_df)} total predictions to {output.merged}")
+        print(f"\nMerged prediction files to {output.merged}")
 
 
 rule update_manifest_aev_plig:
