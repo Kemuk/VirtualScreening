@@ -177,6 +177,7 @@ rule aev_plig_array:
 
     output:
         done = touch("data/logs/rescoring/aev_plig_array.done"),
+        predictions_done = touch("AEV-PLIG/output/predictions/.aev_plig_predictions.done"),
 
     log:
         "data/logs/rescoring/aev_plig_array.log"
@@ -195,6 +196,7 @@ rule aev_plig_array:
     shell:
         """
         mkdir -p AEV-PLIG/output/shards
+        mkdir -p AEV-PLIG/output/predictions
         bash workflow/scripts/submit_aev_plig_array.sh \
             --shards-dir AEV-PLIG/data/shards \
             --output-dir AEV-PLIG/output/shards \
@@ -258,7 +260,7 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        array_done = "data/logs/rescoring/aev_plig_array.done",
+        predictions_done = "AEV-PLIG/output/predictions/.aev_plig_predictions.done",
         predictions_dir = "AEV-PLIG/output/predictions",
 
     output:
