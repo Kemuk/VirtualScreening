@@ -1,11 +1,11 @@
-# Snakemake SLURM Profile - Development/Testing (Snakemake 8.x)
+# Snakemake SLURM Profile - Development/Testing (Snakemake 9.x)
 # ==============================================================
 # Usage: snakemake --profile workflow/profiles/slurm_devel --config mode=devel <target>
 #
 # This profile uses shorter time limits and the devel partition
 # for quick turnaround during testing.
 
-# Executor settings (Snakemake 8.x)
+# Executor settings (Snakemake 9.x)
 executor: slurm
 jobs: 10                           # Max concurrent jobs
 latency-wait: 5                    # Short wait time for devel
@@ -14,12 +14,10 @@ printshellcmds: true
 keep-going: false                  # Stop on first failure during testing
 slurm-logdir: "data/logs/slurm"
 
-# Job naming - use rule name for descriptive squeue output
-jobname: "vs-{rule}-{jobid}"
-
 # Default resources - use devel partition with short times
 default-resources:
   slurm_partition: "devel"
+  slurm_extra: "'--job-name=vs-{rule}'"
   mem_mb: 4000
   cpus_per_task: 2
   runtime: 10
@@ -31,7 +29,7 @@ set-resources:
   # =========================================
   create_manifest:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    slurm_extra: "'--job-name=vs-{rule} --mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 32000
     cpus_per_task: 16
 
@@ -47,7 +45,7 @@ set-resources:
 
   shard_preparation:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    slurm_extra: "'--job-name=vs-{rule} --mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 8000
     cpus_per_task: 2
 
@@ -77,7 +75,7 @@ set-resources:
 
   shard_docking:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    slurm_extra: "'--job-name=vs-{rule} --mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
 
@@ -107,7 +105,7 @@ set-resources:
 
   shard_conversion:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    slurm_extra: "'--job-name=vs-{rule} --mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
 
@@ -131,13 +129,13 @@ set-resources:
 
   shard_aev_plig_csv:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    slurm_extra: "'--job-name=vs-{rule} --mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 4000
     cpus_per_task: 2
 
   aev_plig_array:
     slurm_partition: "devel"
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
+    slurm_extra: "'--job-name=vs-{rule} --mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     mem_mb: 2000
     cpus_per_task: 1
 
