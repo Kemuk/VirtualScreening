@@ -80,16 +80,17 @@ rule shard_preparation:
     conda:
         "../envs/vscreen.yaml"
 
-    shell:
-        """
-        python workflow/scripts/shard_stage.py \
-            --stage preparation \
-            --manifest {input.manifest} \
-            --outdir data/chunks/preparation \
-            --num-chunks {params.num_chunks} \
-            {params.max_items_flag} \
-            2>&1 | tee {log}
-        """
+    run:
+        with notify(rule):
+            shell(
+                "python workflow/scripts/shard_stage.py "
+                "--stage preparation "
+                "--manifest {input.manifest} "
+                "--outdir data/chunks/preparation "
+                "--num-chunks {params.num_chunks} "
+                "{params.max_items_flag} "
+                "2>&1 | tee {log}"
+            )
 
 
 rule prepare_array:

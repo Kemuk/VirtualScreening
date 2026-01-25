@@ -111,17 +111,18 @@ rule create_manifest:
         project_root = Path.cwd(),
         mode = config.get("mode", "production"),
 
-    shell:
-        """
-        python workflow/scripts/create_manifest.py \
-            --config {input.config_file} \
-            --mode {params.mode} \
-            --targets {input.targets_file} \
-            --output {output.manifest} \
-            --project-root {params.project_root} \
-            --overwrite \
-            2>&1 | tee {log}
-        """
+    run:
+        with notify(rule):
+            shell(
+                "python workflow/scripts/create_manifest.py "
+                "--config {input.config_file} "
+                "--mode {params.mode} "
+                "--targets {input.targets_file} "
+                "--output {output.manifest} "
+                "--project-root {params.project_root} "
+                "--overwrite "
+                "2>&1 | tee {log}"
+            )
 
 
 # =============================================================================

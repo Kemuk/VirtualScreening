@@ -26,7 +26,7 @@ set-resources:
   # Manifest & Preparation
   # =========================================
   create_manifest:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL --requeue'"
+    slurm_extra: "'--requeue'"
     runtime: 60
     mem_mb: 32000
     cpus_per_task: 16
@@ -43,7 +43,6 @@ set-resources:
     cpus_per_task: 16
 
   shard_preparation:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     runtime: 20
     mem_mb: 16000
     cpus_per_task: 4
@@ -75,7 +74,6 @@ set-resources:
     cpus_per_task: 16
 
   shard_docking:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     runtime: 20
     mem_mb: 16000
     cpus_per_task: 4
@@ -105,7 +103,6 @@ set-resources:
     cpus_per_task: 8
 
   shard_conversion:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     runtime: 20
     mem_mb: 16000
     cpus_per_task: 4
@@ -129,13 +126,12 @@ set-resources:
     cpus_per_task: 16
 
   shard_aev_plig_csv:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     runtime: 10
     mem_mb: 16000
     cpus_per_task: 4
 
   aev_plig_array:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL --requeue'"
+    slurm_extra: "'--requeue'"
     runtime: 30
     mem_mb: 20000
     cpus_per_task: 8
