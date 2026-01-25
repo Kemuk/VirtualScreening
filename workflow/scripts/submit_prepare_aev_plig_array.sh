@@ -85,11 +85,11 @@ array_job_id="${array_job_raw%%;*}"
 
 echo "Submitted AEV-PLIG prepare array job: ${array_job_id} (raw: ${array_job_raw})"
 
-while squeue -j "$array_job_id" -h >/dev/null 2>&1; do
+while squeue --clusters=arc -j "$array_job_id" -h >/dev/null 2>&1; do
     sleep 10
 done
 
-failed_tasks=$(sacct -j "$array_job_id" --format=State --noheader --parsable2 2>/dev/null \
+failed_tasks=$(sacct --clusters=arc -j "$array_job_id" --format=State --noheader --parsable2 2>/dev/null \
     | awk -F'|' '$1 != "" && $1 != "COMPLETED" && $1 !~ /^CANCELLED/ {count++} END {print count+0}')
 
 if [[ "$failed_tasks" -gt 0 ]]; then
