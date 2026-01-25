@@ -61,7 +61,7 @@ set-resources:
   # Docking
   # =========================================
   dock_ligand_gpu:
-    slurm_extra: "'--clusters=htc'"
+    cluster: "htc"
     runtime: 720                   # 12 hours
     mem_mb: 20000
     cpus_per_task: 2
@@ -78,7 +78,7 @@ set-resources:
     cpus_per_task: 4
 
   dock_chunk:
-    slurm_extra: "'--clusters=htc'"
+    cluster: "htc"
     runtime: 720
     mem_mb: 20000
     cpus_per_task: 2
@@ -138,7 +138,7 @@ set-resources:
     cpus_per_task: 1
 
   run_aev_plig_shard:
-    slurm_extra: "'--clusters=htc'"
+    cluster: "htc"
     runtime: 120                   # 2 hours per shard
     mem_mb: 16000
     cpus_per_task: 4
