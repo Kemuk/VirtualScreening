@@ -15,14 +15,15 @@ Outputs:
 """
 
 import argparse
-import sys
 import math
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
-import pandas as pd
-import pyarrow.parquet as pq
+import polars as pl
 from scipy import stats
 from tqdm.auto import tqdm
 from sklearn.metrics import average_precision_score
@@ -39,7 +40,7 @@ except ImportError:
 # Data Loading
 # =============================================================================
 
-def load_manifest_data(manifest_path: Path) -> pd.DataFrame:
+def load_manifest_data(manifest_path: Path) -> pl.DataFrame:
     """
     Load manifest and prepare for metrics computation.
 
@@ -50,33 +51,38 @@ def load_manifest_data(manifest_path: Path) -> pd.DataFrame:
         DataFrame with required columns
     """
     print(f"Loading manifest from {manifest_path}...")
-    manifest = pq.read_table(manifest_path).to_pandas()
+    manifest = pl.read_parquet(manifest_path)
 
     # Filter to rescored ligands
-    rescored = manifest[manifest['rescoring_status'] == True].copy()
-    print(f"  Total entries: {len(manifest)}")
-    print(f"  Rescored entries: {len(rescored)}")
+    rescored = manifest.filter(pl.col("rescoring_status") == True)
+    print(f"  Total entries: {manifest.height}")
+    print(f"  Rescored entries: {rescored.height}")
 
-    if len(rescored) == 0:
+    if rescored.is_empty():
         print("WARNING: No rescored ligands found. Using docked ligands instead.")
-        rescored = manifest[manifest['docking_status'] == True].copy()
+        rescored = manifest.filter(pl.col("docking_status") == True)
 
     # Prepare columns for metrics
     # Vina score: lower is better (more negative = stronger binding)
     # AEV-PLIG score: higher is better
-    rescored['Vina'] = rescored['vina_score']
-    rescored['AEV-PLIG'] = rescored['aev_plig_best_score']
+    rescored = rescored.with_columns(
+        pl.col("vina_score").alias("Vina"),
+        pl.col("aev_plig_best_score").alias("AEV-PLIG"),
+    )
 
     # Summary statistics
     print(f"\nData summary:")
-    print(f"  Targets: {rescored['protein_id'].nunique()}")
-    print(f"  Compounds: {len(rescored)}")
-    print(f"  Actives: {rescored['is_active'].sum()} ({100*rescored['is_active'].mean():.1f}%)")
+    targets = rescored.select(pl.col("protein_id").n_unique()).item()
+    actives = rescored.select(pl.col("is_active").sum()).item()
+    active_rate = rescored.select(pl.col("is_active").mean()).item()
+    print(f"  Targets: {targets}")
+    print(f"  Compounds: {rescored.height}")
+    print(f"  Actives: {actives} ({100*active_rate:.1f}%)")
 
     for method in ['Vina', 'AEV-PLIG']:
         if method in rescored.columns:
-            valid = rescored[method].notna().sum()
-            print(f"  {method} valid: {valid} ({100*valid/len(rescored):.1f}%)")
+            valid = rescored.select(pl.col(method).is_not_null().sum()).item()
+            print(f"  {method} valid: {valid} ({100*valid/rescored.height:.1f}%)")
 
     return rescored
 
@@ -87,15 +93,17 @@ def load_manifest_data(manifest_path: Path) -> pd.DataFrame:
 
 def _rdkit_table(labels: np.ndarray, scores: np.ndarray, higher_is_better: bool) -> list:
     """Prepare data for RDKit metrics."""
-    df = pd.DataFrame({"y": labels.astype(bool), "s": scores.astype(float)})
-    df = df.sort_values("s", ascending=not higher_is_better).reset_index(drop=True)
-    return df[["s", "y"]].values.tolist()
+    order = np.argsort(scores)
+    if higher_is_better:
+        order = order[::-1]
+    sorted_scores = scores[order].astype(float)
+    sorted_labels = labels[order].astype(bool)
+    return list(map(list, zip(sorted_scores, sorted_labels)))
 
 
 def compute_metrics_for_target(
-    target_df: pd.DataFrame,
-    method_col: str,
-    label_col: str,
+    labels: np.ndarray,
+    scores: np.ndarray,
     higher_is_better: bool,
     fracs: List[float],
     bedroc_alpha: float,
@@ -115,12 +123,15 @@ def compute_metrics_for_target(
         Dictionary with metrics or None if failed
     """
     # Clean data
-    clean = target_df.dropna(subset=[method_col, label_col]).copy()
-    if len(clean) < 10:
+    valid_mask = np.isfinite(scores) & np.isfinite(labels)
+    labels = labels[valid_mask]
+    scores = scores[valid_mask]
+
+    if len(labels) < 10:
         return None
 
-    y = clean[label_col].astype(int).values
-    scores = clean[method_col].astype(float).values
+    y = labels.astype(int)
+    scores = scores.astype(float)
 
     if len(np.unique(y)) < 2:
         return None
@@ -167,13 +178,61 @@ def compute_metrics_for_target(
         return None
 
 
+def _compute_target_metrics(
+    target: str,
+    target_data: Dict[str, np.ndarray],
+    label_col: str,
+    fracs: List[float],
+    bedroc_alpha: float,
+) -> Optional[Dict]:
+    labels = target_data.get(label_col)
+    if labels is None:
+        return None
+
+    labels = labels.astype(int)
+    n_compounds = len(labels)
+    n_actives = int(labels.sum())
+
+    row = {
+        "Target": target,
+        "N_Compounds": n_compounds,
+        "N_Actives": n_actives,
+        "Active_Rate": n_actives / n_compounds if n_compounds > 0 else 0,
+    }
+
+    methods = {
+        "Vina": {"higher_is_better": False},
+        "AEV-PLIG": {"higher_is_better": True},
+    }
+
+    for method, spec in methods.items():
+        scores = target_data.get(method)
+        if scores is None:
+            continue
+
+        metrics = compute_metrics_for_target(
+            labels,
+            scores,
+            spec["higher_is_better"],
+            fracs,
+            bedroc_alpha,
+        )
+
+        if metrics:
+            for metric_name, value in metrics.items():
+                row[f"{method}_{metric_name}"] = value
+
+    return row
+
+
 def evaluate_per_target(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     target_col: str,
     label_col: str,
     fracs: List[float],
     bedroc_alpha: float,
-) -> pd.DataFrame:
+    n_jobs: int,
+) -> pl.DataFrame:
     """
     Compute metrics per target for both methods.
 
@@ -189,52 +248,49 @@ def evaluate_per_target(
     """
     print("\nComputing per-target metrics...")
 
-    methods = {
-        'Vina': {'higher_is_better': False},
-        'AEV-PLIG': {'higher_is_better': True}
-    }
-
     results = []
-    targets = df[target_col].unique()
+    target_groups = df.partition_by(target_col, as_dict=True)
 
-    for target in tqdm(targets, desc="Processing targets"):
-        target_df = df[df[target_col] == target]
-        n_compounds = len(target_df)
-        n_actives = int(target_df[label_col].sum())
-
-        row = {
-            'Target': target,
-            'N_Compounds': n_compounds,
-            'N_Actives': n_actives,
-            'Active_Rate': n_actives / n_compounds if n_compounds > 0 else 0
+    def build_target_payload(target_df: pl.DataFrame) -> Dict[str, np.ndarray]:
+        return {
+            label_col: target_df.get_column(label_col).to_numpy(),
+            "Vina": target_df.get_column("Vina").to_numpy() if "Vina" in target_df.columns else None,
+            "AEV-PLIG": target_df.get_column("AEV-PLIG").to_numpy() if "AEV-PLIG" in target_df.columns else None,
         }
 
-        for method, spec in methods.items():
-            if method not in target_df.columns:
-                continue
+    items = []
+    for target, target_df in target_groups.items():
+        items.append((target, build_target_payload(target_df)))
 
-            metrics = compute_metrics_for_target(
-                target_df, method, label_col,
-                spec['higher_is_better'], fracs, bedroc_alpha
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        futures = [
+            executor.submit(
+                _compute_target_metrics,
+                target,
+                payload,
+                label_col,
+                fracs,
+                bedroc_alpha,
             )
+            for target, payload in items
+        ]
 
-            if metrics:
-                for metric_name, value in metrics.items():
-                    row[f'{method}_{metric_name}'] = value
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing targets"):
+            result = future.result()
+            if result:
+                results.append(result)
 
-        results.append(row)
-
-    results_df = pd.DataFrame(results)
-    print(f"  Computed metrics for {len(results_df)} targets")
+    results_df = pl.DataFrame(results)
+    print(f"  Computed metrics for {results_df.height} targets")
 
     return results_df
 
 
 def aggregate_with_bootstrap(
-    per_target_df: pd.DataFrame,
+    per_target_df: pl.DataFrame,
     n_boot: int,
     seed: int,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """
     Aggregate per-target metrics with bootstrap CIs and Mann-Whitney U tests.
 
@@ -251,7 +307,7 @@ def aggregate_with_bootstrap(
     methods = ['Vina', 'AEV-PLIG']
 
     # Get metric names
-    metric_cols = [c for c in per_target_df.columns if c.startswith('Vina_')]
+    metric_cols = [c for c in per_target_df.columns if c.startswith("Vina_")]
     metric_names = [c.replace('Vina_', '') for c in metric_cols]
 
     results = []
@@ -268,7 +324,7 @@ def aggregate_with_bootstrap(
             if col not in per_target_df.columns:
                 continue
 
-            values = per_target_df[col].dropna().values
+            values = per_target_df.get_column(col).drop_nulls().to_numpy()
             if len(values) == 0:
                 continue
 
@@ -314,7 +370,7 @@ def aggregate_with_bootstrap(
 
         results.append(row)
 
-    return pd.DataFrame(results)
+    return pl.DataFrame(results)
 
 
 # =============================================================================
@@ -361,6 +417,12 @@ def main():
         default=42,
         help='Random seed'
     )
+    parser.add_argument(
+        '--n-jobs',
+        type=int,
+        default=max(os.cpu_count() or 1, 1),
+        help='Number of parallel workers for per-target computation'
+    )
 
     args = parser.parse_args()
 
@@ -375,7 +437,7 @@ def main():
     # Load data
     df = load_manifest_data(args.manifest)
 
-    if len(df) == 0:
+    if df.is_empty():
         print("ERROR: No data to process", file=sys.stderr)
         sys.exit(1)
 
@@ -386,6 +448,7 @@ def main():
         label_col='is_active',
         fracs=fracs,
         bedroc_alpha=args.bedroc_alpha,
+        n_jobs=args.n_jobs,
     )
 
     # Aggregate with bootstrap
@@ -399,11 +462,11 @@ def main():
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     per_target_path = args.outdir / 'per_target_metrics.csv'
-    per_target_df.to_csv(per_target_path, index=False)
+    per_target_df.write_csv(per_target_path)
     print(f"\nSaved per-target metrics: {per_target_path}")
 
     summary_path = args.outdir / 'summary.csv'
-    summary_df.to_csv(summary_path, index=False)
+    summary_df.write_csv(summary_path)
     print(f"Saved summary: {summary_path}")
 
     # Print summary
@@ -413,10 +476,15 @@ def main():
 
     display_cols = ['Metric', 'Vina', 'AEV-PLIG', 'p_value', 'Significant', 'Effect_Size']
     display_cols = [c for c in display_cols if c in summary_df.columns]
-    print(summary_df[display_cols].to_string(index=False))
+    display_rows = summary_df.select(display_cols).to_dicts()
+    if display_rows:
+        header = " ".join(f"{col:>15}" for col in display_cols)
+        print(header)
+        for row in display_rows:
+            print(" ".join(f"{str(row.get(col, '')):>15}" for col in display_cols))
 
     print("="*90)
-    print(f"\nEvaluated {len(per_target_df)} targets")
+    print(f"\nEvaluated {per_target_df.height} targets")
     print("Significant: Yes if p<0.05")
     print("Effect Size: Rank-biserial correlation (positive = AEV-PLIG better)")
 
@@ -458,10 +526,10 @@ def process_batch(items: list, config: dict) -> list:
 
         try:
             # Convert items to DataFrame for metric computation
-            target_df = pd.DataFrame(target_items)
+            target_df = pl.DataFrame(target_items)
 
             # Check if we have enough data
-            if len(target_df) < 2:
+            if target_df.height < 2:
                 results.append({
                     'ligand_id': ligand_id,
                     'success': False,
@@ -470,23 +538,26 @@ def process_batch(items: list, config: dict) -> list:
                 continue
 
             # Prepare columns
-            target_df['Vina'] = target_df['vina_score']
-            target_df['AEV-PLIG'] = target_df.get('aev_plig_best_score')
+            target_df = target_df.with_columns(
+                pl.col("vina_score").alias("Vina"),
+                pl.col("aev_plig_best_score").alias("AEV-PLIG"),
+            )
 
             # Compute metrics for this target
             metrics = {}
             for method, higher_is_better in [('Vina', False), ('AEV-PLIG', True)]:
                 if method not in target_df.columns:
                     continue
-                valid = target_df[target_df[method].notna()]
-                if len(valid) < 2:
+                valid = target_df.filter(pl.col(method).is_not_null())
+                if valid.height < 2:
                     continue
 
                 try:
+                    labels = valid.get_column("is_active").to_numpy()
+                    scores = valid.get_column(method).to_numpy()
                     method_metrics = compute_metrics_for_target(
-                        valid,
-                        method_col=method,
-                        label_col='is_active',
+                        labels=labels,
+                        scores=scores,
                         higher_is_better=higher_is_better,
                         fracs=fracs,
                         bedroc_alpha=bedroc_alpha,
@@ -500,8 +571,8 @@ def process_batch(items: list, config: dict) -> list:
                 'success': True,
                 'data': {
                     'protein_id': protein_id,
-                    'n_compounds': len(target_df),
-                    'n_actives': int(target_df['is_active'].sum()),
+                        'n_compounds': target_df.height,
+                        'n_actives': int(target_df.select(pl.col("is_active").sum()).item()),
                     'metrics': metrics,
                 },
             })
