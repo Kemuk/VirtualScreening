@@ -24,12 +24,12 @@ from tqdm import tqdm
 # SLURM queue limits (cluster or partition key)
 PARTITION_CONFIG = {
     'arc': {
-        'max_array_size': 5000,
+        'max_array_size': 100,
         'default_time': 60,      # minutes
         'default_mem': '8G',
     },
     'htc': {
-        'max_array_size': 1000,
+        'max_array_size': 200,
         'default_time': 120,
         'default_mem': '16G',
         'gres': 'gpu:1',

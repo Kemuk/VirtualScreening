@@ -4,7 +4,7 @@
 
 # Executor settings (Snakemake 8.x)
 executor: slurm
-jobs: 100                          # Max concurrent jobs
+jobs: 100
 latency-wait: 60                   # Wait for files to appear (NFS lag)
 retries: 2                         # Retry failed jobs
 printshellcmds: true
@@ -12,13 +12,13 @@ keep-going: true                   # Continue with independent jobs on failure
 slurm-logdir: "data/logs/slurm"
 
 # Job naming - use rule name for descriptive squeue output
-jobname: "vs-{rule}"
+jobname: "vs-{rule}-{jobid}"
 
 # Default resources (applied to all rules unless overridden)
 default-resources:
-  mem_mb: 8000
-  runtime: 30                      # minutes
-  cpus_per_task: 4
+  mem_mb: 16000
+  runtime: 60                      # minutes
+  cpus_per_task: 16
 
 # Per-rule resource overrides
 set-resources:
@@ -26,8 +26,8 @@ set-resources:
   # Manifest & Preparation
   # =========================================
   create_manifest:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
-    runtime: 20
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL --requeue'"
+    runtime: 60
     mem_mb: 32000
     cpus_per_task: 16
 
@@ -37,7 +37,8 @@ set-resources:
     cpus_per_task: 2
 
   prepare_all_ligands:
-    runtime: 120
+    slurm_extra: "'--requeue'"
+    runtime: 60
     mem_mb: 16000
     cpus_per_task: 16
 
@@ -62,14 +63,16 @@ set-resources:
   # =========================================
   dock_ligand_gpu:
     cluster: "htc"
-    runtime: 720                   # 12 hours
+    slurm_extra: "'--requeue'"
+    runtime: 45
     mem_mb: 20000
-    cpus_per_task: 2
+    cpus_per_task: 8
 
   dock_ligand_cpu:
-    runtime: 720                   # 12 hours
-    mem_mb: 64000
-    cpus_per_task: 32
+    slurm_extra: "'--requeue'"
+    runtime: 90
+    mem_mb: 16000
+    cpus_per_task: 16
 
   shard_docking:
     slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
@@ -81,7 +84,7 @@ set-resources:
     cluster: "htc"
     runtime: 720
     mem_mb: 20000
-    cpus_per_task: 2
+    cpus_per_task: 8
 
   merge_docking_results:
     runtime: 20
@@ -132,21 +135,21 @@ set-resources:
     cpus_per_task: 4
 
   aev_plig_array:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
-    runtime: 480                   # 8 hours (waits for array to complete)
-    mem_mb: 4000
-    cpus_per_task: 1
+    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL --requeue'"
+    runtime: 30
+    mem_mb: 20000
+    cpus_per_task: 8
 
   run_aev_plig_shard:
     cluster: "htc"
     runtime: 120                   # 2 hours per shard
-    mem_mb: 16000
-    cpus_per_task: 4
+    mem_mb: 20000
+    cpus_per_task: 8
 
   merge_aev_plig_predictions:
-    runtime: 10
+    runtime: 60
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 16
 
   update_manifest_aev_plig:
     runtime: 20
@@ -157,8 +160,8 @@ set-resources:
   # Results & Plotting
   # =========================================
   compute_results:
-    runtime: 30
-    mem_mb: 32000
+    runtime: 60
+    mem_mb: 16000
     cpus_per_task: 16
 
   make_plots:

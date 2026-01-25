@@ -177,7 +177,7 @@ rule aev_plig_array:
 
     output:
         done = touch("data/logs/rescoring/aev_plig_array.done"),
-        predictions_dir = directory("AEV-PLIG/output/predictions"),
+        predictions_done = touch("AEV-PLIG/output/predictions/.aev_plig_predictions.done"),
 
     log:
         "data/logs/rescoring/aev_plig_array.log"
@@ -196,6 +196,7 @@ rule aev_plig_array:
     shell:
         """
         mkdir -p AEV-PLIG/output/shards
+        mkdir -p AEV-PLIG/output/predictions
         bash workflow/scripts/submit_aev_plig_array.sh \
             --shards-dir AEV-PLIG/data/shards \
             --output-dir AEV-PLIG/output/shards \
@@ -259,7 +260,8 @@ rule merge_aev_plig_predictions:
     Merge all shard predictions into a single CSV file.
     """
     input:
-        predictions_dir = directory("AEV-PLIG/output/predictions"),
+        predictions_done = "AEV-PLIG/output/predictions/.aev_plig_predictions.done",
+        shards_dir = "AEV-PLIG/output/shards",
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
@@ -268,19 +270,27 @@ rule merge_aev_plig_predictions:
         "data/logs/rescoring/merge_aev_plig_predictions.log"
 
     params:
-        predictions_dir = "AEV-PLIG/output/predictions",
+        shards_dir = "AEV-PLIG/output/shards",
 
     run:
         import dask.dataframe as dd
+        import shutil
+        from datetime import datetime
         from pathlib import Path
 
-        predictions_dir = Path(params.predictions_dir)
-        shard_files = sorted(predictions_dir.glob("*_predictions.csv"))
+        shards_dir = Path(params.shards_dir)
+        shard_files = sorted(shards_dir.glob("shard_*_predictions.csv"))
 
         print(f"Merging {len(shard_files)} prediction files...")
 
         if not shard_files:
             raise ValueError("No prediction files could be loaded!")
+
+        if Path(output.merged).exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{output.merged}.bak.{timestamp}"
+            shutil.copy2(output.merged, backup_path)
+            print(f"Backed up existing predictions to {backup_path}")
 
         df = dd.read_csv([str(path) for path in shard_files])
         df.to_csv(output.merged, single_file=True, index=False)
