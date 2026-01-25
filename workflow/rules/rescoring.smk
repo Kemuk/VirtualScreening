@@ -261,7 +261,7 @@ rule merge_aev_plig_predictions:
     """
     input:
         predictions_done = "AEV-PLIG/output/predictions/.aev_plig_predictions.done",
-        predictions_dir = "AEV-PLIG/output/predictions",
+        shards_dir = "AEV-PLIG/output/shards",
 
     output:
         merged = "AEV-PLIG/output/predictions/lit_pcba_predictions.csv",
@@ -270,19 +270,27 @@ rule merge_aev_plig_predictions:
         "data/logs/rescoring/merge_aev_plig_predictions.log"
 
     params:
-        predictions_dir = "AEV-PLIG/output/predictions",
+        shards_dir = "AEV-PLIG/output/shards",
 
     run:
         import dask.dataframe as dd
+        import shutil
+        from datetime import datetime
         from pathlib import Path
 
-        predictions_dir = Path(params.predictions_dir)
-        shard_files = sorted(predictions_dir.glob("*_predictions.csv"))
+        shards_dir = Path(params.shards_dir)
+        shard_files = sorted(shards_dir.glob("shard_*_predictions.csv"))
 
         print(f"Merging {len(shard_files)} prediction files...")
 
         if not shard_files:
             raise ValueError("No prediction files could be loaded!")
+
+        if Path(output.merged).exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{output.merged}.bak.{timestamp}"
+            shutil.copy2(output.merged, backup_path)
+            print(f"Backed up existing predictions to {backup_path}")
 
         df = dd.read_csv([str(path) for path in shard_files])
         df.to_csv(output.merged, single_file=True, index=False)
