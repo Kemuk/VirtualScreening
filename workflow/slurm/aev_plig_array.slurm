@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=aev-plig-array
-#SBATCH --mem=16G
+#SBATCH --mem=8G
 #SBATCH --cpus-per-task=4
 
 set -euo pipefail
