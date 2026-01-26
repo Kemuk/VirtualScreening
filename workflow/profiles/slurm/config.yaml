@@ -79,8 +79,8 @@ set-resources:
     cluster: "htc"
     slurm_extra: "'--requeue'"
     runtime: 45
-    mem_mb: 20000
-    cpus_per_task: 8
+    mem_mb: 2000
+    cpus_per_task: 2
 
   dock_ligand_cpu:
     slurm_extra: "'--requeue'"
@@ -96,8 +96,8 @@ set-resources:
   dock_chunk:
     cluster: "htc"
     runtime: 720
-    mem_mb: 20000
-    cpus_per_task: 8
+    mem_mb: 2000
+    cpus_per_task: 2
 
   dock_array:
     runtime: 720
