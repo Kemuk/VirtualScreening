@@ -83,10 +83,10 @@ if [[ "$mode" == "devel" ]]; then
     time_limit="00:10:00"
 fi
 
-array_job_raw=$(sbatch --parsable --array=0-"$array_end" \
+array_job_raw=$(sbatch --parsable --array=0-"$array_end"%100 \
     --job-name=vs-docking-array \
     --time="$time_limit" \
-    --mem=2G \
+    --mem=4G \
     --cpus-per-task=2 \
     --output="${slurm_log_dir}/docking_array_%A_%a.out" \
     --error="${slurm_log_dir}/docking_array_%A_%a.err" \

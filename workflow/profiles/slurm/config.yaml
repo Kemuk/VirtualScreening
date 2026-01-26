@@ -78,7 +78,7 @@ set-resources:
   dock_ligand_gpu:
     cluster: "htc"
     slurm_extra: "'--requeue'"
-    runtime: 45
+    runtime: 90
     mem_mb: 2000
     cpus_per_task: 2
 
@@ -95,13 +95,13 @@ set-resources:
 
   dock_chunk:
     cluster: "htc"
-    runtime: 720
+    runtime: 90
     mem_mb: 2000
     cpus_per_task: 2
 
   dock_array:
-    runtime: 45
-    mem_mb: 2000
+    runtime: 90
+    mem_mb: 4000
     cpus_per_task: 2
 
   merge_docking_results:
@@ -155,7 +155,7 @@ set-resources:
   aev_plig_array:
     slurm_extra: "'--requeue'"
     runtime: 30
-    mem_mb: 20000
+    mem_mb: 8000
     cpus_per_task: 8
 
   run_aev_plig_shard:

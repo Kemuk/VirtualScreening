@@ -198,7 +198,7 @@ def submit_array(
     # Build sbatch command
     cmd = [
         'sbatch',
-        f'--array=0-{n_chunks - 1}',
+        f'--array=0-{n_chunks - 1}%100',
         f'--time={time_str}',
         f'--mem={mem}',
         f'--job-name=vs-{stage}',
