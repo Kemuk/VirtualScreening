@@ -48,20 +48,20 @@ def filter_pending(
     if depends_on:
         df = df[df[depends_on] == True]
 
-    # Filter by status column (this stage must be incomplete)
     status_col = config.get('status_column')
-    if status_col:
-        df = df[df[status_col] == False]
-
-    # For stages without status column, check file existence
     check_file = config.get('check_file_column')
-    if check_file and not status_col:
-        # Filter to items where file doesn't exist
-        def file_missing(path_str):
-            if pd.isna(path_str) or not path_str:
-                return True
-            return not Path(path_str).exists()
 
+    def file_missing(path_str):
+        if pd.isna(path_str) or not path_str:
+            return True
+        return not Path(path_str).exists()
+
+    if status_col and check_file:
+        pending_mask = (df[status_col] == False) | df[check_file].apply(file_missing)
+        df = df[pending_mask]
+    elif status_col:
+        df = df[df[status_col] == False]
+    elif check_file:
         df = df[df[check_file].apply(file_missing)]
 
     print(f"Stage: {stage} ({config['description']})")

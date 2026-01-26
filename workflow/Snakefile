@@ -13,7 +13,7 @@ Main stages:
 
 Usage:
   snakemake --cores 8                      # Local execution
-  snakemake --profile workflow/profiles/arc  # Cluster execution
+  snakemake --profile workflow/profiles/slurm  # Cluster execution
   snakemake -n                             # Dry-run
 """
 

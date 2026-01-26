@@ -72,7 +72,7 @@ snakemake --dry-run -n
 snakemake --cores 16 --use-conda
 
 # For cluster (with profile)
-snakemake --profile workflow/profiles/arc
+snakemake --profile workflow/profiles/slurm
 ```
 
 ### Stage-by-Stage Execution
@@ -246,7 +246,7 @@ snakemake --cores 64 --resources mem_mb=256000
 
 ```bash
 # Using cluster profile
-snakemake --profile workflow/profiles/arc
+snakemake --profile workflow/profiles/slurm
 
 # Custom SLURM submission
 snakemake --cluster "sbatch --partition=htc --mem={resources.mem_mb} --cpus-per-task={threads}" \
