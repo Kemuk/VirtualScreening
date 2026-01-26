@@ -45,6 +45,8 @@ STAGE_CONFIG = {
         'status_column': 'docking_status',
         'depends_on': 'preparation_status',
         'filter_column': None,
+        'check_file_column': 'docked_pdbqt_path',
+        'score_column': 'vina_score',
     },
     'conversion': {
         'status_column': 'conversion_status',
@@ -61,6 +63,7 @@ STAGE_CONFIG = {
         'status_column': 'rescoring_status',
         'depends_on': 'docking_status',
         'filter_column': None,
+        'score_column': 'aev_plig_best_score',
     },
     'aev_merge': {
         'status_column': None,  # No status column
@@ -144,19 +147,20 @@ def query_pending(
     if config['depends_on']:
         df = df[df[config['depends_on']] == True]
 
-    # Filter by status (this stage must be incomplete)
-    if config['status_column']:
-        df = df[df[config['status_column']] == False]
+    status_column = config.get('status_column')
+    check_file = config.get('check_file_column')
 
-    # For stages without a status column, optionally check file existence
-    if not config['status_column'] and config.get('check_file_column'):
-        check_file = config['check_file_column']
+    def file_missing(path_str: str) -> bool:
+        if pd.isna(path_str) or not path_str:
+            return True
+        return not Path(path_str).exists()
 
-        def file_missing(path_str: str) -> bool:
-            if pd.isna(path_str) or not path_str:
-                return True
-            return not Path(path_str).exists()
-
+    if status_column and check_file:
+        pending_mask = (df[status_column] == False) | df[check_file].apply(file_missing)
+        df = df[pending_mask]
+    elif status_column:
+        df = df[df[status_column] == False]
+    elif check_file:
         df = df[df[check_file].apply(file_missing)]
 
     # Apply additional filter if specified
@@ -240,8 +244,8 @@ def update_completed(
     df.loc[mask, status_column] = True
 
     # Update scores if provided
-    if scores:
-        score_column = f"{stage}_score"
+    score_column = config.get('score_column')
+    if scores and score_column:
         if score_column not in df.columns:
             df[score_column] = None
         for item_id, score in scores.items():

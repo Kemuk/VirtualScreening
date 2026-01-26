@@ -25,6 +25,7 @@ STAGES = {
         'score_column': 'vina_score',
         'worker_module': 'workflow.slurm.workers.docking',
         'description': 'Vina GPU/CPU docking',
+        'check_file_column': 'docked_pdbqt_path',
     },
     'conversion': {
         'status_column': 'conversion_status',
