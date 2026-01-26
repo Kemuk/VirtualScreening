@@ -10,7 +10,9 @@ This manifest serves as the single source of truth for pipeline state.
 """
 
 import argparse
+import re
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -320,7 +322,7 @@ def create_ligand_entry(
 
     # Check docking status
     docking_status = docked_pdbqt_path.exists()
-    vina_score = extract_vina_score(docking_log_path) if docking_status else None
+    vina_score = extract_vina_score(docked_pdbqt_path) if docking_status else None
 
     # Check conversion status (SDF exists)
     conversion_status = docked_sdf_path.exists()
@@ -445,7 +447,7 @@ def process_batch(items: List[Dict], config: Dict) -> List[Dict]:
             # Check statuses
             preparation_status = ligand_pdbqt_path.exists()
             docking_status = docked_pdbqt_path.exists()
-            vina_score = extract_vina_score(docking_log_path) if docking_status else None
+            vina_score = extract_vina_score(docked_pdbqt_path) if docking_status else None
             conversion_status = docked_sdf_path.exists()
 
             now = datetime.now().isoformat()
@@ -508,33 +510,105 @@ def process_batch(items: List[Dict], config: Dict) -> List[Dict]:
     return results
 
 
-def extract_vina_score(log_path: Path) -> Optional[float]:
+def extract_vina_score(pdbqt_path: Path) -> Optional[float]:
     """
-    Extract binding affinity from Vina log file.
+    Extract binding affinity from docked PDBQT file.
 
-    Looks for lines like:
-       1        -8.5      0.000      0.000
+    Reads line 2 which contains the REMARK with Vina score:
+        REMARK VINA RESULT:    -8.5      0.000      0.000
 
     Returns the first (best) score.
     """
-    if not log_path.exists():
+    if not pdbqt_path.exists():
         return None
 
     try:
-        with open(log_path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('1 ') or line.startswith('1\t'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        try:
-                            return float(parts[1])
-                        except ValueError:
-                            continue
+        with open(pdbqt_path) as f:
+            next(f)  # Skip MODEL line
+            line2 = next(f)
+            match = re.search(r'-?\d+\.\d+', line2)
+            if match:
+                return float(match.group())
     except Exception:
         pass
 
     return None
+
+
+def update_vina_scores(manifest_path: Path, project_root: Path, max_workers: int = 16):
+    """
+    Update missing vina_score values from docked PDBQT files.
+
+    This is much faster than regenerating the entire manifest when you only
+    need to backfill missing Vina scores.
+
+    Args:
+        manifest_path: Path to existing manifest parquet
+        project_root: Project root directory for resolving paths
+        max_workers: Number of parallel workers for extraction
+    """
+    if not manifest_path.exists():
+        print(f"ERROR: Manifest not found: {manifest_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load existing manifest
+    df = pl.read_parquet(manifest_path)
+    total_rows = len(df)
+
+    # Filter to docked but missing score
+    needs_score = df.filter(
+        (pl.col('docking_status') == True) &
+        pl.col('vina_score').is_null()
+    )
+
+    if len(needs_score) == 0:
+        print("No ligands need score extraction - all vina_score values are populated.")
+        return
+
+    print(f"Found {len(needs_score)} / {total_rows} ligands needing score extraction")
+
+    # Build list of paths
+    paths = [project_root / p for p in needs_score['docked_pdbqt_path'].to_list()]
+    compound_keys = needs_score['compound_key'].to_list()
+
+    # Parallel extraction
+    print(f"Extracting scores using {max_workers} workers...")
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        scores = list(tqdm(
+            executor.map(extract_vina_score, paths),
+            total=len(paths),
+            desc="Extracting scores"
+        ))
+
+    # Count successful extractions
+    successful = sum(1 for s in scores if s is not None)
+    print(f"Successfully extracted {successful} / {len(scores)} scores")
+
+    # Build updates dataframe
+    updates = pl.DataFrame({
+        'compound_key': compound_keys,
+        'vina_score_new': scores
+    })
+
+    # Join and coalesce
+    df = df.join(updates, on='compound_key', how='left')
+    df = df.with_columns(
+        pl.coalesce(['vina_score_new', 'vina_score']).alias('vina_score')
+    ).drop('vina_score_new')
+
+    # Update last_updated timestamp for modified rows
+    df = df.with_columns(
+        pl.when(pl.col('compound_key').is_in(compound_keys))
+        .then(pl.lit(datetime.now()))
+        .otherwise(pl.col('last_updated'))
+        .alias('last_updated')
+    )
+
+    # Save back
+    df.write_parquet(manifest_path)
+    print(f"Updated manifest: {manifest_path}")
+    print(f"  Scores extracted: {successful}")
+    print(f"  Scores missing: {len(scores) - successful}")
 
 
 def save_manifest(entries: List[Dict], output_path: Path, backup: bool = True):
@@ -687,8 +761,25 @@ def main():
         default=Path.cwd(),
         help="Project root directory"
     )
+    parser.add_argument(
+        "--update-vina-scores",
+        action="store_true",
+        help="Only update missing vina_score values from docked PDBQT files (much faster than full rebuild)"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=16,
+        help="Number of parallel workers for score extraction (default: 16)"
+    )
 
     args = parser.parse_args()
+
+    # Handle update-vina-scores mode
+    if args.update_vina_scores:
+        update_vina_scores(args.output, args.project_root, args.workers)
+        print("✓ Vina score update complete!")
+        return
 
     # Check if manifest exists and overwrite flag is needed
     if args.output.exists() and not args.overwrite:

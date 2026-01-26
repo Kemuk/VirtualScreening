@@ -125,6 +125,43 @@ rule create_manifest:
             )
 
 
+rule update_vina_scores:
+    """
+    Backfill missing vina_score values from docked PDBQT files.
+
+    This is much faster than regenerating the entire manifest when you only
+    need to extract Vina scores from existing docked outputs.
+
+    Usage:
+        snakemake update_vina_scores --profile workflow/profiles/slurm
+    """
+    input:
+        manifest = MANIFEST_PATH,
+
+    output:
+        touch("data/logs/update_vina_scores.done"),
+
+    log:
+        "data/logs/update_vina_scores.log"
+
+    conda:
+        "envs/vscreen.yaml"
+
+    params:
+        project_root = Path.cwd(),
+        workers = 16,
+
+    shell:
+        """
+        python workflow/scripts/create_manifest.py \
+            --output {input.manifest} \
+            --project-root {params.project_root} \
+            --update-vina-scores \
+            --workers {params.workers} \
+            2>&1 | tee {log}
+        """
+
+
 # =============================================================================
 # Include Additional Rules
 # =============================================================================
