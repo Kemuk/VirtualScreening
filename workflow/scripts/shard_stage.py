@@ -41,6 +41,10 @@ STAGE_COLUMNS = {
         "rescoring_status",
         "aev_plig_best_score",
     ],
+    "vina_backfill": [
+        "compound_key",
+        "docked_pdbqt_path",
+    ],
 }
 
 
@@ -94,6 +98,11 @@ def filter_stage(df: pl.DataFrame, stage: str, include_done: bool = False) -> pl
                 (pl.col("rescoring_status") == False)
                 | (pl.col("aev_plig_best_score").is_null())
             )
+        )
+    if stage == "vina_backfill":
+        return df.filter(
+            (pl.col("docking_status") == True)
+            & pl.col("vina_score").is_null()
         )
     raise ValueError(f"Unknown stage: {stage}")
 

@@ -224,6 +224,7 @@ rule shard_docking:
     input:
         manifest = MANIFEST_PATH,
         prep_checkpoint = "data/logs/preparation/ligands_checkpoint.done",
+        receptors = rules.prepare_all_receptors.input,
 
     output:
         expand("data/chunks/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS)

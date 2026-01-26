@@ -16,6 +16,7 @@ STAGE_COLUMNS = {
     "preparation": ["preparation_status"],
     "docking": ["docking_status", "vina_score"],
     "conversion": ["conversion_status"],
+    "vina_backfill": ["vina_score"],
 }
 
 
