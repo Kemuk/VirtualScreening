@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=docking-array
-#SBATCH --mem=16G
+#SBATCH --mem=2G
 #SBATCH --cpus-per-task=2
 
 set -euo pipefail
