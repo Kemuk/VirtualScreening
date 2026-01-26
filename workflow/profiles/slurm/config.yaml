@@ -26,7 +26,7 @@ set-resources:
   # Manifest & Preparation
   # =========================================
   create_manifest:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL --requeue'"
+    slurm_extra: "'--requeue'"
     runtime: 60
     mem_mb: 32000
     cpus_per_task: 16
@@ -34,7 +34,7 @@ set-resources:
   prepare_receptor:
     runtime: 10
     mem_mb: 4000
-    cpus_per_task: 2
+    cpus_per_task: 4
 
   prepare_all_ligands:
     slurm_extra: "'--requeue'"
@@ -43,20 +43,19 @@ set-resources:
     cpus_per_task: 16
 
   shard_preparation:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 8
 
   prepare_ligand_chunk:
     runtime: 120
     mem_mb: 16000
-    cpus_per_task: 16
+    cpus_per_task: 8
 
   merge_preparation_results:
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 8
 
   # =========================================
   # Docking
@@ -75,10 +74,9 @@ set-resources:
     cpus_per_task: 16
 
   shard_docking:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 16
 
   dock_chunk:
     cluster: "htc"
@@ -87,26 +85,27 @@ set-resources:
     cpus_per_task: 8
 
   merge_docking_results:
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 8
+
 
   # =========================================
   # SDF Conversion
   # =========================================
   convert_to_sdf:
     runtime: 30
-    mem_mb: 8000
-    cpus_per_task: 4
+    mem_mb: 16000
+    cpus_per_task: 8
 
   convert_all_sdf:
     runtime: 60
     mem_mb: 16000
     cpus_per_task: 8
 
+
   shard_conversion:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
     cpus_per_task: 4
 
@@ -116,7 +115,7 @@ set-resources:
     cpus_per_task: 8
 
   merge_conversion_results:
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
     cpus_per_task: 4
 
@@ -124,18 +123,17 @@ set-resources:
   # AEV-PLIG Rescoring
   # =========================================
   prepare_aev_plig_input:
-    runtime: 20
-    mem_mb: 32000
+    runtime: 30
+    mem_mb: 16000
     cpus_per_task: 16
 
   shard_aev_plig_csv:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL'"
     runtime: 10
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 8
 
   aev_plig_array:
-    slurm_extra: "'--mail-user=reub0582@ox.ac.uk --mail-type=BEGIN,FAIL --requeue'"
+    slurm_extra: "'--requeue'"
     runtime: 30
     mem_mb: 20000
     cpus_per_task: 8
@@ -143,18 +141,18 @@ set-resources:
   run_aev_plig_shard:
     cluster: "htc"
     runtime: 120                   # 2 hours per shard
-    mem_mb: 20000
+    mem_mb: 16000
     cpus_per_task: 8
 
   merge_aev_plig_predictions:
     runtime: 60
     mem_mb: 16000
-    cpus_per_task: 16
+    cpus_per_task: 8
 
   update_manifest_aev_plig:
-    runtime: 20
+    runtime: 30
     mem_mb: 16000
-    cpus_per_task: 4
+    cpus_per_task: 8
 
   # =========================================
   # Results & Plotting

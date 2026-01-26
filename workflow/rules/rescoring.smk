@@ -82,6 +82,7 @@ rule shard_rescoring:
     """
     input:
         manifest = MANIFEST_PATH,
+        conversion_checkpoint = "data/logs/conversion/conversion_checkpoint.done",
 
     output:
         expand("data/chunks/rescoring/chunk_{chunk}.csv", chunk=SHARDS),
@@ -95,15 +96,16 @@ rule shard_rescoring:
     conda:
         "../envs/vscreen.yaml"
 
-    shell:
-        """
-        python workflow/scripts/shard_stage.py \
-            --stage rescoring \
-            --manifest {input.manifest} \
-            --outdir data/chunks/rescoring \
-            --num-chunks {params.num_chunks} \
-            2>&1 | tee {log}
-        """
+    run:
+        with notify(rule):
+            shell(
+                "python workflow/scripts/shard_stage.py "
+                "--stage rescoring "
+                "--manifest {input.manifest} "
+                "--outdir data/chunks/rescoring "
+                "--num-chunks {params.num_chunks} "
+                "2>&1 | tee {log}"
+            )
 
 
 rule prepare_aev_plig_shard:
@@ -193,21 +195,22 @@ rule aev_plig_array:
     conda:
         AEV_PLIG_CONDA
 
-    shell:
-        """
-        mkdir -p AEV-PLIG/output/shards
-        mkdir -p AEV-PLIG/output/predictions
-        bash workflow/scripts/submit_aev_plig_array.sh \
-            --shards-dir AEV-PLIG/data/shards \
-            --output-dir AEV-PLIG/output/shards \
-            --log-dir data/logs/rescoring \
-            --slurm-log-dir data/logs/slurm \
-            --config config/config.yaml \
-            --mode {params.mode} \
-            --model {params.model} \
-            --aev-plig-env "{params.aev_plig_env}" \
-            2>&1 | tee {log}
-        """
+    run:
+        with notify(rule):
+            shell(
+                "mkdir -p AEV-PLIG/output/shards && "
+                "mkdir -p AEV-PLIG/output/predictions && "
+                "bash workflow/scripts/submit_aev_plig_array.sh "
+                "--shards-dir AEV-PLIG/data/shards "
+                "--output-dir AEV-PLIG/output/shards "
+                "--log-dir data/logs/rescoring "
+                "--slurm-log-dir data/logs/slurm "
+                "--config config/config.yaml "
+                "--mode {params.mode} "
+                "--model {params.model} "
+                '--aev-plig-env "{params.aev_plig_env}" '
+                "2>&1 | tee {log}"
+            )
 
 
 rule run_aev_plig_shard:

@@ -309,6 +309,105 @@ def validate_target_exists(target_id):
 
 
 # =============================================================================
+# Email Notification Wrapper
+# =============================================================================
+
+# Stage descriptions for email notifications
+NOTIFICATION_STAGES = {
+    # Stage 1: Manifest & Preparation
+    "create_manifest": "Preparation (1/5)",
+    "shard_preparation": "Preparation (1/5)",
+    "merge_preparation_results": "Preparation (1/5)",
+    # Stage 2: Docking
+    "shard_docking": "Docking (2/5)",
+    "merge_docking_results": "Docking (2/5)",
+    # Stage 3: Conversion
+    "shard_conversion": "Conversion (3/5)",
+    "merge_conversion_results": "Conversion (3/5)",
+    # Stage 4: AEV-PLIG Rescoring
+    "shard_rescoring": "AEV-PLIG (4/5)",
+    "aev_plig_array": "AEV-PLIG (4/5)",
+    "merge_aev_plig_predictions": "AEV-PLIG (4/5)",
+    # Stage 5: Results
+    "compute_results": "Results (5/5)",
+    "make_plots": "Results (5/5)",
+}
+
+# Default notification email (can be overridden via config)
+NOTIFICATION_EMAIL = "reub0582@ox.ac.uk"
+
+
+def send_notification(subject: str, body: str, email: str = None):
+    """
+    Send email notification using the mail command.
+
+    Args:
+        subject: Email subject line
+        body: Email body text
+        email: Recipient email (default: NOTIFICATION_EMAIL)
+    """
+    import subprocess
+
+    if email is None:
+        email = config.get("notification_email", NOTIFICATION_EMAIL)
+
+    try:
+        subprocess.run(
+            ["mail", "-s", subject, email],
+            input=body.encode(),
+            check=False,
+            timeout=30,
+        )
+    except Exception as e:
+        # Don't fail the workflow if email fails
+        print(f"Warning: Failed to send notification email: {e}")
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def notify(rule_name: str, email: str = None):
+    """
+    Context manager for sending start/complete/fail notifications.
+
+    Usage in rules:
+        run:
+            with notify(rule):
+                shell("python script.py ...")
+
+    Args:
+        rule_name: Name of the rule (use built-in 'rule' variable)
+        email: Override recipient email
+    """
+    stage = NOTIFICATION_STAGES.get(rule_name, "Unknown Stage")
+
+    # Send start notification
+    send_notification(
+        subject=f"VS: {stage} - {rule_name} started",
+        body=f"Stage: {stage}\nRule: {rule_name}\nStatus: Started",
+        email=email,
+    )
+
+    try:
+        yield
+    except Exception as e:
+        # Send failure notification
+        send_notification(
+            subject=f"VS: {stage} - {rule_name} FAILED",
+            body=f"Stage: {stage}\nRule: {rule_name}\nStatus: FAILED\nError: {str(e)}",
+            email=email,
+        )
+        raise
+
+    # Send completion notification
+    send_notification(
+        subject=f"VS: {stage} - {rule_name} completed",
+        body=f"Stage: {stage}\nRule: {rule_name}\nStatus: Completed",
+        email=email,
+    )
+
+
+# =============================================================================
 # Checkpoint Functions
 # =============================================================================
 

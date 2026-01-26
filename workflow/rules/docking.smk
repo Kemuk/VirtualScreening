@@ -238,16 +238,17 @@ rule shard_docking:
     conda:
         "../envs/vscreen.yaml"
 
-    shell:
-        """
-        python workflow/scripts/shard_stage.py \
-            --stage docking \
-            --manifest {input.manifest} \
-            --outdir data/chunks/docking \
-            --num-chunks {params.num_chunks} \
-            {params.include_done} \
-            2>&1 | tee {log}
-        """
+    run:
+        with notify(rule):
+            shell(
+                "python workflow/scripts/shard_stage.py "
+                "--stage docking "
+                "--manifest {input.manifest} "
+                "--outdir data/chunks/docking "
+                "--num-chunks {params.num_chunks} "
+                "{params.include_done} "
+                "2>&1 | tee {log}"
+            )
 
 
 rule dock_array:
