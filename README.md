@@ -29,7 +29,8 @@ VirtualScreening/
 │   ├── scripts/                  # Python scripts called by rules
 │   ├── envs/                     # Conda environment definitions
 │   └── profiles/                 # Cluster execution profiles
-│       └── arc/                  # ARC cluster profile
+│       ├── slurm/                # SLURM cluster profile (production)
+│       └── slurm_devel/          # SLURM cluster profile (development)
 │
 ├── config/
 │   ├── config.yaml               # Main workflow configuration
@@ -101,9 +102,9 @@ snakemake -n
 snakemake --cores 8
 ```
 
-#### Cluster execution (ARC):
+#### Cluster execution (SLURM):
 ```bash
-snakemake --profile workflow/profiles/arc
+snakemake --profile workflow/profiles/slurm
 ```
 
 ## Configuration
