@@ -31,11 +31,20 @@ set-resources:
     mem_mb: 32000
     cpus_per_task: 16
 
-  update_vina_scores:
-    slurm_extra: "'--requeue'"
-    runtime: 120
-    mem_mb: 32000
-    cpus_per_task: 16
+  shard_vina_backfill:
+    runtime: 30
+    mem_mb: 16000
+    cpus_per_task: 8
+
+  vina_backfill_array:
+    runtime: 30
+    mem_mb: 2000
+    cpus_per_task: 1
+
+  merge_vina_backfill:
+    runtime: 30
+    mem_mb: 16000
+    cpus_per_task: 8
 
   prepare_receptor:
     runtime: 10

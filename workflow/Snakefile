@@ -125,41 +125,110 @@ rule create_manifest:
             )
 
 
+# =============================================================================
+# Vina Score Backfill (Array-based)
+# =============================================================================
+
+VINA_BACKFILL_CHUNKS = get_chunk_count("cpu")
+VINA_BACKFILL_CHUNK_IDS = list(range(VINA_BACKFILL_CHUNKS))
+
+
+rule shard_vina_backfill:
+    """Shard ligands needing vina_score extraction into chunk CSVs."""
+    input:
+        manifest = MANIFEST_PATH,
+
+    output:
+        expand("data/chunks/vina_backfill/chunk_{chunk}.csv", chunk=VINA_BACKFILL_CHUNK_IDS)
+
+    log:
+        "data/logs/vina_backfill/shard_vina_backfill.log"
+
+    params:
+        num_chunks = VINA_BACKFILL_CHUNKS,
+
+    conda:
+        "envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/shard_stage.py \
+            --stage vina_backfill \
+            --manifest {input.manifest} \
+            --outdir data/chunks/vina_backfill \
+            --num-chunks {params.num_chunks} \
+            2>&1 | tee {log}
+        """
+
+
+rule vina_backfill_array:
+    """Submit a SLURM array to extract Vina scores from docked PDBQT files."""
+    input:
+        expand("data/chunks/vina_backfill/chunk_{chunk}.csv", chunk=VINA_BACKFILL_CHUNK_IDS)
+
+    output:
+        touch("data/logs/vina_backfill/vina_backfill_array.done")
+
+    log:
+        "data/logs/vina_backfill/vina_backfill_array.log"
+
+    params:
+        mode = config.get("mode", "production"),
+        workers = 8,
+
+    shell:
+        """
+        bash workflow/scripts/submit_vina_backfill_array.sh \
+            --chunks-dir data/chunks/vina_backfill \
+            --results-dir data/results/vina_backfill \
+            --log-dir data/logs/vina_backfill \
+            --slurm-log-dir data/logs/slurm \
+            --mode {params.mode} \
+            --workers {params.workers} \
+            2>&1 | tee {log}
+        """
+
+
+rule merge_vina_backfill:
+    """Merge vina_backfill results into the manifest."""
+    input:
+        manifest = MANIFEST_PATH,
+        array_done = "data/logs/vina_backfill/vina_backfill_array.done",
+
+    output:
+        touch("data/logs/vina_backfill/vina_backfill_checkpoint.done")
+
+    log:
+        "data/logs/vina_backfill/merge_vina_backfill.log"
+
+    conda:
+        "envs/vscreen.yaml"
+
+    shell:
+        """
+        python workflow/scripts/merge_stage_results.py \
+            --stage vina_backfill \
+            --manifest {input.manifest} \
+            --results-dir data/results/vina_backfill \
+            2>&1 | tee {log}
+        """
+
+
 rule update_vina_scores:
     """
     Backfill missing vina_score values from docked PDBQT files.
 
-    This is much faster than regenerating the entire manifest when you only
-    need to extract Vina scores from existing docked outputs.
+    This uses a SLURM array job to extract scores in parallel across
+    multiple nodes, each using 8 threads.
 
     Usage:
         snakemake update_vina_scores --profile workflow/profiles/slurm
     """
     input:
-        manifest = MANIFEST_PATH,
+        "data/logs/vina_backfill/vina_backfill_checkpoint.done"
 
-    output:
-        touch("data/logs/update_vina_scores.done"),
-
-    log:
-        "data/logs/update_vina_scores.log"
-
-    conda:
-        "envs/vscreen.yaml"
-
-    params:
-        project_root = Path.cwd(),
-        workers = 16,
-
-    shell:
-        """
-        python workflow/scripts/create_manifest.py \
-            --output {input.manifest} \
-            --project-root {params.project_root} \
-            --update-vina-scores \
-            --workers {params.workers} \
-            2>&1 | tee {log}
-        """
+    message:
+        "Vina score backfill complete!"
 
 
 # =============================================================================
