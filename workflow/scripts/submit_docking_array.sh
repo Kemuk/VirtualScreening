@@ -102,6 +102,21 @@ while squeue --clusters="$cluster" -j "$array_job_id" -h >/dev/null 2>&1; do
     sleep 10
 done
 
+missing_chunks=()
+for chunk_path in "${chunks_dir}"/chunk_*.csv; do
+    chunk_name="$(basename "$chunk_path")"
+    result_path="${results_dir}/${chunk_name}"
+    if [[ ! -f "$result_path" ]]; then
+        missing_chunks+=("$chunk_name")
+    fi
+done
+
+if [[ "${#missing_chunks[@]}" -gt 0 ]]; then
+    echo "Missing ${#missing_chunks[@]} result file(s) after array completion:" >&2
+    printf '  %s\n' "${missing_chunks[@]}" >&2
+    exit 1
+fi
+
 failed_tasks=$(sacct --clusters="$cluster" -j "$array_job_id" --format=State --noheader --parsable2 2>/dev/null \
     | awk -F'|' '$1 != "" && $1 != "COMPLETED" && $1 !~ /^CANCELLED/ {count++} END {print count+0}')
 

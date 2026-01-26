@@ -84,6 +84,12 @@ set-resources:
     mem_mb: 8000
     cpus_per_task: 2
 
+  dock_array:
+    slurm_partition: "devel"
+    mem_mb: 2000
+    cpus_per_task: 1
+    runtime: 60
+
   merge_docking_results:
     slurm_partition: "devel"
     mem_mb: 4000

@@ -47,9 +47,10 @@ STAGE_CONFIG = {
         'filter_column': None,
     },
     'conversion': {
-        'status_column': None,  # No status column - uses docking_status as proxy
+        'status_column': 'conversion_status',
         'depends_on': 'docking_status',
         'filter_column': None,
+        'check_file_column': 'docked_sdf_path',
     },
     'aev_prep': {
         'status_column': None,  # No status column
@@ -146,6 +147,17 @@ def query_pending(
     # Filter by status (this stage must be incomplete)
     if config['status_column']:
         df = df[df[config['status_column']] == False]
+
+    # For stages without a status column, optionally check file existence
+    if not config['status_column'] and config.get('check_file_column'):
+        check_file = config['check_file_column']
+
+        def file_missing(path_str: str) -> bool:
+            if pd.isna(path_str) or not path_str:
+                return True
+            return not Path(path_str).exists()
+
+        df = df[df[check_file].apply(file_missing)]
 
     # Apply additional filter if specified
     if config.get('filter_column'):
