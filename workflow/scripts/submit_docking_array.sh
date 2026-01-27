@@ -73,12 +73,12 @@ if [[ "$docking_mode" == "gpu" ]]; then
     gres="--gres=gpu:1"
 fi
 
-partition=""
+partition="--partition=short"
 if [[ "$mode" == "devel" ]]; then
     partition="--partition=devel"
 fi
 
-time_limit="02:00:00"
+time_limit="01:30:00"
 if [[ "$mode" == "devel" ]]; then
     time_limit="00:10:00"
 fi
@@ -86,6 +86,8 @@ fi
 array_job_raw=$(sbatch --parsable --array=0-"$array_end" \
     --job-name=vs-docking-array \
     --time="$time_limit" \
+    --mem=4G \
+    --cpus-per-task=2 \
     --output="${slurm_log_dir}/docking_array_%A_%a.out" \
     --error="${slurm_log_dir}/docking_array_%A_%a.err" \
     --clusters="$cluster" \

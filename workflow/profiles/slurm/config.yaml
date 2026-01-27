@@ -100,9 +100,9 @@ set-resources:
     cpus_per_task: 2
 
   dock_array:
-    runtime: 720
-    mem_mb: 2000
-    cpus_per_task: 1
+    runtime: 90
+    mem_mb: 4000
+    cpus_per_task: 2
 
   merge_docking_results:
     runtime: 30
