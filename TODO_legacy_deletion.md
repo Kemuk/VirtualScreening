@@ -2,33 +2,31 @@
 
 This document tracks legacy code that can be safely deleted in future commits.
 
-## Batch 1: Safe to Delete (High Priority)
+## Batch 1: Safe to Delete (High Priority) - COMPLETED ✓
 
-These files are duplicates, test scripts, or have been superseded by the `/workflow/slurm/` system.
+These files have been deleted (commit 311fa10):
 
 ### Duplicate Files
-- [ ] `pymol_box_tmp.py` - Exact duplicate of `pymol_box.py`
+- [x] `pymol_box_tmp.py` - Exact duplicate of `pymol_box.py`
 
 ### Test/Development Scripts
-- [ ] `hello_mpi.py` - Simple MPI hello world test script (7 lines)
+- [x] `hello_mpi.py` - Simple MPI hello world test script (7 lines)
 
 ### Root-level Legacy SLURM Scripts
-These are superseded by the modern `/workflow/slurm/` pipeline:
-
-- [ ] `test_submit_cpu.slurm` - Devel test for CPU docking
-- [ ] `test_submit_gpu.slurm` - Devel test for GPU docking
-- [ ] `test_sdf.slurm` - Test SDF conversion
-- [ ] `vina_smoke.slurm` - Smoke test for GPU docking
-- [ ] `submit_cpu.slurm` - CPU docking submission
-- [ ] `submit_gpu.slurm` - GPU docking submission
-- [ ] `vina_gpu_array.slurm` - GPU array job variant
-- [ ] `aev_plig_array.slurm` - AEV-PLIG rescoring (root level)
-- [ ] `chunks_and_csv_array.slurm` - Ligand preparation
-- [ ] `generate_sdfs_array.slurm` - SDF conversion
-- [ ] `smi2pdbqt_array.slurm` - SMILES to PDBQT conversion
-- [ ] `mol2_to_pdbqt.slurm` - MOL2 to PDBQT conversion
-- [ ] `sdf_conversion.slurm` - PDBQT to SDF conversion
-- [ ] `plig_manifest.slurm` - Manifest generation
+- [x] `test_submit_cpu.slurm` - Devel test for CPU docking
+- [x] `test_submit_gpu.slurm` - Devel test for GPU docking
+- [x] `test_sdf.slurm` - Test SDF conversion
+- [x] `vina_smoke.slurm` - Smoke test for GPU docking
+- [x] `submit_cpu.slurm` - CPU docking submission
+- [x] `submit_gpu.slurm` - GPU docking submission
+- [x] `vina_gpu_array.slurm` - GPU array job variant
+- [x] `aev_plig_array.slurm` - AEV-PLIG rescoring (root level)
+- [x] `chunks_and_csv_array.slurm` - Ligand preparation
+- [x] `generate_sdfs_array.slurm` - SDF conversion
+- [x] `smi2pdbqt_array.slurm` - SMILES to PDBQT conversion
+- [x] `mol2_to_pdbqt.slurm` - MOL2 to PDBQT conversion
+- [x] `sdf_conversion.slurm` - PDBQT to SDF conversion
+- [x] `plig_manifest.slurm` - Manifest generation
 
 ## Batch 2: Verify Before Deleting (Medium Priority)
 
@@ -61,6 +59,7 @@ These appear to be old standalone tools that may have been replaced by the unifi
 ## Notes
 
 - **Total files identified**: 26
-- **Estimated lines of code**: ~2,500+
+- **Batch 1 deleted**: 16 files (~1,100 lines)
+- **Remaining**: 10 files (~1,400 lines)
 - Always run tests after deletion to ensure nothing breaks
 - Check git history for any documentation referencing these files
