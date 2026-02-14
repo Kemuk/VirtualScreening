@@ -2,17 +2,25 @@
 preparation.smk
 
 Snakemake rules for receptor and ligand preparation.
+
+Simplified rules after consolidation:
+  - prepare_receptor: Prepare single receptor (development/testing)
+  - prepare_all: Prepare all receptors and ligands via SLURM (production)
 """
 
 MODE = config.get('mode', 'production')
-PREP_CHUNKS = get_chunk_count("cpu")
-PREP_MAX_ITEMS = get_chunk_max_items()
-PREP_CHUNK_IDS = list(range(PREP_CHUNKS))
 
 
-# Receptor Preparation
+# =============================================================================
+# Single-file Preparation (Development/Testing)
+# =============================================================================
+
 rule prepare_receptor:
-    """Convert receptor MOL2 → PDBQT + PDB."""
+    """
+    Convert receptor MOL2 → PDBQT + PDB (for development/testing).
+
+    For production preparation of all receptors, use: snakemake prepare_all
+    """
     input:
         mol2 = lambda wildcards: get_target_config(wildcards.target)['receptor_mol2']
 
@@ -43,117 +51,49 @@ rule prepare_receptor:
         """
 
 
-rule prepare_all_receptors:
-    """Prepare all receptors defined in targets.yaml."""
-    input:
-        expand(
-            "{dataset}/{target}/{target}_protein.pdbqt",
-            dataset=config['dataset'],
-            target=get_targets()
-        ),
-        expand(
-            "{dataset}/{target}/{target}_protein.pdb",
-            dataset=config['dataset'],
-            target=get_targets()
-        )
+# =============================================================================
+# Production Preparation (SLURM Array Jobs)
+# =============================================================================
 
-    message:
-        "All receptors prepared!"
+rule prepare_all:
+    """
+    Prepare all receptors and ligands via SLURM array jobs.
 
+    This is the recommended production method for preparing large numbers of ligands.
+    Uses the unified submit_stage.py to handle SLURM job submission.
 
-# Ligand Preparation (Batch Processing)
-rule shard_preparation:
-    """Shard ligands needing preparation into chunk CSVs."""
+    Includes:
+      - Receptor preparation (MOL2 → PDBQT + PDB)
+      - Ligand preparation (SMILES → PDBQT)
+    """
     input:
         manifest = MANIFEST_PATH
 
     output:
-        expand("data/chunks/preparation/chunk_{chunk}.csv", chunk=PREP_CHUNK_IDS)
+        checkpoint = touch("data/logs/preparation/preparation_checkpoint.done")
 
     log:
-        "data/logs/preparation/shard_preparation.log"
-
-    params:
-        num_chunks = PREP_CHUNKS,
-        max_items_flag = lambda wildcards: f"--max-items {PREP_MAX_ITEMS}" if PREP_MAX_ITEMS else "",
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    run:
-        with notify(rule):
-            shell(
-                "python workflow/scripts/shard_stage.py "
-                "--stage preparation "
-                "--manifest {input.manifest} "
-                "--outdir data/chunks/preparation "
-                "--num-chunks {params.num_chunks} "
-                "{params.max_items_flag} "
-                "2>&1 | tee {log}"
-            )
-
-
-rule prepare_array:
-    """Submit a SLURM array to prepare all chunks."""
-    input:
-        expand("data/chunks/preparation/chunk_{chunk}.csv", chunk=PREP_CHUNK_IDS)
-
-    output:
-        touch("data/logs/preparation/preparation_array.done")
-
-    log:
-        "data/logs/preparation/preparation_array.log"
+        "data/logs/preparation/prepare_all.log"
 
     conda:
         "../envs/vscreen.yaml"
 
     params:
-        mode = config.get("mode", "production"),
+        mode = MODE,
 
     shell:
         """
-        bash workflow/scripts/submit_preparation_array.sh \
-            --chunks-dir data/chunks/preparation \
-            --results-dir data/results/preparation \
-            --log-dir data/logs/preparation \
-            --slurm-log-dir data/logs/slurm \
-            --config config/config.yaml \
+        # First ensure all receptors are prepared
+        echo "Preparing receptors..."
+        snakemake --cores 1 \
+            $(snakemake --list-targets-rules prepare_receptor 2>/dev/null || echo "") \
+            2>&1 | tee -a {log}
+
+        # Then prepare ligands via SLURM
+        echo "Submitting ligand preparation jobs..."
+        python -m workflow.slurm.submit_stage \
+            --stage ligands \
             --mode {params.mode} \
-            2>&1 | tee {log}
-        """
-
-
-rule merge_preparation_results:
-    """Merge preparation chunk results into the manifest."""
-    input:
-        manifest = MANIFEST_PATH,
-        array_done = "data/logs/preparation/preparation_array.done",
-
-    output:
-        touch("data/logs/preparation/ligands_checkpoint.done")
-
-    log:
-        "data/logs/preparation/merge_preparation_results.log"
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    shell:
-        """
-        python workflow/scripts/merge_stage_results.py \
-            --stage preparation \
             --manifest {input.manifest} \
-            --results-dir data/results/preparation \
-            2>&1 | tee {log}
+            2>&1 | tee -a {log}
         """
-
-
-# Combined Preparation Rule
-rule prepare_all:
-    """Prepare all receptors and ligands."""
-    input:
-        rules.prepare_all_receptors.input,
-        "data/logs/preparation/ligands_checkpoint.done"
-
-    message:
-        "Preparation stage complete!"
