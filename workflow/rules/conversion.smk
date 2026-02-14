@@ -3,42 +3,31 @@ conversion.smk
 
 Snakemake rules for post-docking format conversion (PDBQT → SDF).
 
+Simplified rules after consolidation:
+  - convert_to_sdf: Convert single file (development/testing)
+  - convert_all: Convert all via SLURM array jobs (production)
+
 SDF format is required for:
   - Visualization in molecular viewers
   - AEV-PLIG rescoring
   - General downstream analysis
-
-Rules:
-  - convert_to_sdf: Convert single docked PDBQT to SDF
-  - convert_all_to_sdf: Batch conversion of all docked ligands
 """
 
-CONVERSION_CHUNKS = get_chunk_count("cpu")
-CONVERSION_CHUNK_IDS = list(range(CONVERSION_CHUNKS))
+MODE = config.get('mode', 'production')
 
 
 # =============================================================================
-# Single Conversion Rule
+# Single-file Conversion (Development/Testing)
 # =============================================================================
 
 rule convert_to_sdf:
     """
-    Convert a single docked PDBQT file to SDF format.
+    Convert a single docked PDBQT file to SDF format (for development/testing).
 
     Extracts the best binding mode (model 0) by default and converts
     to SDF using OpenBabel.
 
-    Wildcards:
-        dataset: Dataset name (e.g., LIT_PCBA)
-        target: Target protein ID (e.g., ADRB2)
-        ligand_class: 'actives' or 'inactives'
-        ligand_id: Ligand identifier
-
-    Input:
-        - Docked PDBQT file (with multiple binding modes)
-
-    Output:
-        - SDF file (single binding mode)
+    For production conversion of all ligands, use: snakemake convert_all
     """
     input:
         pdbqt = "{dataset}/{target}/docked_vina/{ligand_class}/{ligand_id}_docked.pdbqt",
@@ -72,131 +61,37 @@ rule convert_to_sdf:
 
 
 # =============================================================================
-# Helper Functions
+# Production Conversion (SLURM Array Jobs)
 # =============================================================================
 
-# =============================================================================
-# Batch Conversion Rules
-# =============================================================================
+rule convert_all:
+    """
+    Convert all docked ligands to SDF format via SLURM array jobs.
 
-rule shard_conversion:
-    """Shard docked ligands needing conversion into chunk CSVs."""
+    This is the recommended production method for converting large numbers of ligands.
+    Uses the unified submit_stage.py to handle SLURM job submission.
+    """
     input:
         manifest = MANIFEST_PATH,
         docking_checkpoint = "data/logs/docking/docking_checkpoint.done",
 
     output:
-        expand("data/chunks/conversion/chunk_{chunk}.csv", chunk=CONVERSION_CHUNK_IDS)
+        checkpoint = touch("data/logs/conversion/conversion_checkpoint.done")
 
     log:
-        "data/logs/conversion/shard_conversion.log"
-
-    params:
-        num_chunks = CONVERSION_CHUNKS,
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    run:
-        with notify(rule):
-            shell(
-                "python workflow/scripts/shard_stage.py "
-                "--stage conversion "
-                "--manifest {input.manifest} "
-                "--outdir data/chunks/conversion "
-                "--num-chunks {params.num_chunks} "
-                "2>&1 | tee {log}"
-            )
-
-
-rule convert_array:
-    """Submit a SLURM array to convert all chunks."""
-    input:
-        expand("data/chunks/conversion/chunk_{chunk}.csv", chunk=CONVERSION_CHUNK_IDS)
-
-    output:
-        touch("data/logs/conversion/conversion_array.done")
-
-    log:
-        "data/logs/conversion/conversion_array.log"
+        "data/logs/conversion/convert_all.log"
 
     conda:
         "../envs/vscreen.yaml"
 
     params:
-        mode = config.get("mode", "production"),
+        mode = MODE,
 
     shell:
         """
-        bash workflow/scripts/submit_conversion_array.sh \
-            --chunks-dir data/chunks/conversion \
-            --results-dir data/results/conversion \
-            --log-dir data/logs/conversion \
-            --slurm-log-dir data/logs/slurm \
-            --config config/config.yaml \
-            --mode {params.mode} \
-            2>&1 | tee {log}
-        """
-
-
-rule merge_conversion_results:
-    """Merge conversion chunk results into the manifest."""
-    input:
-        manifest = MANIFEST_PATH,
-        array_done = "data/logs/conversion/conversion_array.done",
-
-    output:
-        touch("data/logs/conversion/conversion_checkpoint.done")
-
-    log:
-        "data/logs/conversion/merge_conversion_results.log"
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    shell:
-        """
-        python workflow/scripts/merge_stage_results.py \
+        python -m workflow.slurm.submit_stage \
             --stage conversion \
+            --mode {params.mode} \
             --manifest {input.manifest} \
-            --results-dir data/results/conversion \
             2>&1 | tee {log}
         """
-
-
-# =============================================================================
-# Convenience Rules
-# =============================================================================
-
-rule convert_target_to_sdf:
-    """
-    Convert all docked ligands for a specific target to SDF.
-
-    Usage: snakemake convert_target_to_sdf --config target=ADRB2
-    """
-    input:
-        lambda wildcards: expand(
-            "{dataset}/{target}/docked_sdf/{ligand_class}/{ligand_id}.sdf",
-            dataset=config['dataset'],
-            target=config.get('target', 'ADRB2'),
-            ligand_class=['actives', 'inactives'],
-            ligand_id=get_ligand_ids_for_target(config.get('target', 'ADRB2'))
-        )
-
-    message:
-        "Target SDF conversion complete!"
-
-
-def get_ligand_ids_for_target(target_id: str) -> list:
-    """
-    Get list of ligand IDs for a specific target from manifest.
-
-    Args:
-        target_id: Target protein ID
-
-    Returns:
-        List of ligand IDs
-    """
-    manifest = load_manifest()
-    target_ligands = manifest[manifest['protein_id'] == target_id]
-    return target_ligands['ligand_id'].unique().tolist()
