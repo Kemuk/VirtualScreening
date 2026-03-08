@@ -22,6 +22,7 @@ STAGES = {
         'cluster': 'arc',
         'resources': {
             'production': {
+                'partition': 'short',
                 'time': '01:00:00',
                 'mem': '4G',
                 'cpus': 1,
@@ -123,7 +124,7 @@ STAGES = {
                 'mem': '16G',
                 'cpus': 4,
                 'gpus': 1,
-                'partition': 'gpu',
+                'partition': 'short',
                 'max_concurrent': 20,
             },
             'devel': {

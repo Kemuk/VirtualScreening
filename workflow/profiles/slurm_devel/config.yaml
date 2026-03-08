@@ -24,76 +24,47 @@ default-resources:
   cpus_per_task: 2
   runtime: 10
 
-# Per-rule resource overrides - all 2 minutes for testing
+# Per-rule resource overrides - all short times for testing
 set-resources:
   # =========================================
-  # Manifest & Preparation
+  # Manifest Generation
   # =========================================
   create_manifest:
     slurm_partition: "devel"
     mem_mb: 32000
     cpus_per_task: 16
+    runtime: 10
 
+  # =========================================
+  # Preparation
+  # =========================================
   prepare_receptor:
     slurm_partition: "devel"
     mem_mb: 2000
     cpus_per_task: 1
+    runtime: 10
 
-  prepare_all_ligands:
+  prepare_all:
     slurm_partition: "devel"
     mem_mb: 8000
     cpus_per_task: 4
-
-  shard_preparation:
-    slurm_partition: "devel"
-    mem_mb: 8000
-    cpus_per_task: 2
-
-  prepare_ligand_chunk:
-    slurm_partition: "devel"
-    mem_mb: 8000
-    cpus_per_task: 4
-
-  merge_preparation_results:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
+    runtime: 10
 
   # =========================================
   # Docking
   # =========================================
-  dock_ligand_gpu:
-    slurm_partition: "devel"
-    cluster: "htc"
-    mem_mb: 8000
-    cpus_per_task: 2
-
-  dock_ligand_cpu:
+  dock_ligand:
     slurm_partition: "devel"
     mem_mb: 16000
     cpus_per_task: 8
+    runtime: 10
 
-  shard_docking:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
-
-  dock_chunk:
+  dock_all:
     slurm_partition: "devel"
     cluster: "htc"
     mem_mb: 8000
     cpus_per_task: 2
-
-  dock_array:
-    slurm_partition: "devel"
-    mem_mb: 2000
-    cpus_per_task: 1
     runtime: 60
-
-  merge_docking_results:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
 
   # =========================================
   # SDF Conversion
@@ -102,60 +73,23 @@ set-resources:
     slurm_partition: "devel"
     mem_mb: 4000
     cpus_per_task: 2
+    runtime: 10
 
-  convert_all_sdf:
+  convert_all:
     slurm_partition: "devel"
     mem_mb: 8000
     cpus_per_task: 4
-
-  shard_conversion:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
-
-  convert_chunk_to_sdf:
-    slurm_partition: "devel"
-    mem_mb: 8000
-    cpus_per_task: 4
-
-  merge_conversion_results:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
+    runtime: 10
 
   # =========================================
   # AEV-PLIG Rescoring
   # =========================================
-  prepare_aev_plig_input:
-    slurm_partition: "devel"
-    mem_mb: 8000
-    cpus_per_task: 4
-
-  shard_aev_plig_csv:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
-
-  aev_plig_array:
-    slurm_partition: "devel"
-    mem_mb: 2000
-    cpus_per_task: 1
-
-  run_aev_plig_shard:
+  rescore_all:
     slurm_partition: "devel"
     cluster: "htc"
     mem_mb: 8000
     cpus_per_task: 2
-
-  merge_aev_plig_predictions:
-    slurm_partition: "devel"
-    mem_mb: 4000
-    cpus_per_task: 2
-
-  update_manifest_aev_plig:
-    slurm_partition: "devel"
-    mem_mb: 8000
-    cpus_per_task: 2
+    runtime: 10
 
   # =========================================
   # Results & Plotting
@@ -164,8 +98,10 @@ set-resources:
     slurm_partition: "devel"
     mem_mb: 8000
     cpus_per_task: 4
+    runtime: 10
 
   make_plots:
     slurm_partition: "devel"
     mem_mb: 8000
     cpus_per_task: 4
+    runtime: 10

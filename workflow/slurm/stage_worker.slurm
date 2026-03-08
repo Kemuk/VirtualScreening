@@ -71,6 +71,9 @@ case "${STAGE}" in
     conversion)
         # SDF conversion requires OpenBabel
         module load OpenBabel 2>/dev/null || true
+        # Set OpenBabel plugin directory
+        export BABEL_LIBDIR="${CONPREFIX}/lib/openbabel"
+        echo "BABEL_LIBDIR: ${BABEL_LIBDIR}"
         ;;
     aev_infer)
         # AEV-PLIG rescoring requires CUDA for neural network

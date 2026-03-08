@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from openbabel import openbabel as ob
 
 import yaml
 from tqdm import tqdm
@@ -62,44 +63,22 @@ def extract_model_from_pdbqt(pdbqt_path: Path, model_index: int = 0) -> str:
 
 
 def pdbqt_to_sdf(pdbqt_path: Path, sdf_path: Path, model_index: int = 0) -> bool:
-    """
-    Convert PDBQT to SDF.
-
-    Args:
-        pdbqt_path: Input docked PDBQT file
-        sdf_path: Output SDF file
-        model_index: Which binding mode to extract (0 = best)
-
-    Returns:
-        True if successful, False otherwise
-    """
-    obabel_bin = os.environ.get("OBABEL_BIN", "obabel")
-
-    # Extract model
     model_content = extract_model_from_pdbqt(pdbqt_path, model_index)
 
-    # Write to temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.pdbqt', delete=False) as tmp:
-        tmp.write(model_content)
-        tmp_path = Path(tmp.name)
+    conv = ob.OBConversion()
+    conv.SetInFormat("pdbqt")
+    conv.SetOutFormat("sdf")
 
-    try:
-        # Create output directory
-        sdf_path.parent.mkdir(parents=True, exist_ok=True)
+    mol = ob.OBMol()
+    if not conv.ReadString(mol, model_content):
+        raise RuntimeError("Failed to read PDBQT")
 
-        # Convert with obabel
-        cmd = [obabel_bin, str(tmp_path), "-O", str(sdf_path), "-h"]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    sdf_path.parent.mkdir(parents=True, exist_ok=True)
 
-        return sdf_path.exists()
+    if not conv.WriteFile(mol, str(sdf_path)):
+        raise RuntimeError("Failed to write SDF")
 
-    except subprocess.CalledProcessError:
-        return False
-
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
-
+    return sdf_path.exists()
 
 def process_item(row: dict, model_index: int) -> dict:
     """
@@ -165,12 +144,14 @@ def process_item(row: dict, model_index: int) -> dict:
         }
 
     except Exception as e:
+        # Include full error message for debugging
         return {
             **base_result,
             'success': False,
             'skipped': False,
-            'error': str(e),
+            'error': f"{type(e).__name__}: {str(e)}",
         }
+
 
 
 def process_slice(
@@ -213,6 +194,13 @@ def process_slice(
     for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Task {task_id}"):
         result = process_item(row.to_dict(), model_index)
         results.append(result)
+
+        # Print errors immediately for real-time debugging
+        if not result.get('success') and not result.get('skipped'):
+            ligand = result.get('ligand_id', result.get('compound_key', 'unknown'))
+            error = result.get('error', 'unknown error')
+            print(f"  ✗ FAILED: {ligand}: {error}")
+
 
     # Write results
     output_path = write_results(results, results_dir, 'conversion', task_id)

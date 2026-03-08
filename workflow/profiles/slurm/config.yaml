@@ -23,7 +23,7 @@ default-resources:
 # Per-rule resource overrides
 set-resources:
   # =========================================
-  # Manifest & Preparation
+  # Manifest Generation
   # =========================================
   create_manifest:
     slurm_extra: "'--requeue'"
@@ -31,84 +31,35 @@ set-resources:
     mem_mb: 32000
     cpus_per_task: 16
 
-  shard_vina_backfill:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  vina_backfill_array:
-    runtime: 30
-    mem_mb: 2000
-    cpus_per_task: 1
-
-  merge_vina_backfill:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 8
-
+  # =========================================
+  # Preparation
+  # =========================================
   prepare_receptor:
     runtime: 10
     mem_mb: 4000
     cpus_per_task: 4
 
-  prepare_all_ligands:
+  prepare_all:
     slurm_extra: "'--requeue'"
     runtime: 60
     mem_mb: 16000
     cpus_per_task: 16
 
-  shard_preparation:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  prepare_ligand_chunk:
-    runtime: 120
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  merge_preparation_results:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 8
-
   # =========================================
   # Docking
   # =========================================
-  dock_ligand_gpu:
-    cluster: "htc"
-    slurm_extra: "'--requeue'"
-    runtime: 90
-    mem_mb: 2000
-    cpus_per_task: 2
-
-  dock_ligand_cpu:
+  dock_ligand:
     slurm_extra: "'--requeue'"
     runtime: 90
     mem_mb: 16000
     cpus_per_task: 16
 
-  shard_docking:
-    runtime: 30
+  dock_all:
+    cluster: "htc"
+    slurm_extra: "'--requeue'"
+    runtime: 90
     mem_mb: 16000
     cpus_per_task: 16
-
-  dock_chunk:
-    cluster: "htc"
-    runtime: 90
-    mem_mb: 2000
-    cpus_per_task: 2
-
-  dock_array:
-    runtime: 90
-    mem_mb: 4000
-    cpus_per_task: 2
-
-  merge_docking_results:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 8
-
 
   # =========================================
   # SDF Conversion
@@ -118,59 +69,16 @@ set-resources:
     mem_mb: 16000
     cpus_per_task: 8
 
-  convert_all_sdf:
+  convert_all:
     runtime: 60
     mem_mb: 16000
     cpus_per_task: 8
-
-
-  shard_conversion:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 4
-
-  convert_chunk_to_sdf:
-    runtime: 60
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  merge_conversion_results:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 4
 
   # =========================================
   # AEV-PLIG Rescoring
   # =========================================
-  prepare_aev_plig_input:
-    runtime: 30
-    mem_mb: 16000
-    cpus_per_task: 16
-
-  shard_aev_plig_csv:
-    runtime: 10
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  aev_plig_array:
-    slurm_extra: "'--requeue'"
-    runtime: 30
-    mem_mb: 8000
-    cpus_per_task: 8
-
-  run_aev_plig_shard:
-    cluster: "htc"
-    runtime: 120                   # 2 hours per shard
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  merge_aev_plig_predictions:
-    runtime: 60
-    mem_mb: 16000
-    cpus_per_task: 8
-
-  update_manifest_aev_plig:
-    runtime: 30
+  rescore_all:
+    runtime: 120
     mem_mb: 16000
     cpus_per_task: 8
 

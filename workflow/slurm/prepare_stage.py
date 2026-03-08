@@ -17,8 +17,8 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
-import pyarrow.parquet as pq
+import polars as pl
+from tqdm import tqdm
 
 from workflow.slurm.stage_config import get_stage_config, list_stages
 
@@ -26,7 +26,7 @@ from workflow.slurm.stage_config import get_stage_config, list_stages
 def filter_pending(
     manifest_path: Path,
     stage: str,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """
     Filter manifest to items pending processing for a stage.
 
@@ -40,33 +40,56 @@ def filter_pending(
     config = get_stage_config(stage)
 
     # Load manifest
-    df = pq.read_table(manifest_path).to_pandas()
-    original_count = len(df)
+    df = pl.read_parquet(manifest_path)
+    original_count = df.height
 
     # Filter by dependency (previous stage must be complete)
     depends_on = config.get('depends_on')
     if depends_on:
-        df = df[df[depends_on] == True]
+        df = df.filter(pl.col(depends_on) == True)
 
     status_col = config.get('status_column')
     check_file = config.get('check_file_column')
 
     def file_missing(path_str):
-        if pd.isna(path_str) or not path_str:
+        if path_str is None or path_str == "":
             return True
         return not Path(path_str).exists()
 
     if status_col and check_file:
-        pending_mask = (df[status_col] == False) | df[check_file].apply(file_missing)
-        df = df[pending_mask]
+        paths = df.select(check_file).to_series().to_list()
+        missing_mask = [
+            file_missing(p)
+            for p in tqdm(paths, desc="Checking files", unit="file")
+        ]
+
+        df = df.with_columns(
+            pl.Series("_file_missing", missing_mask)
+        )
+
+        df = df.filter(
+            (pl.col(status_col) == False) | pl.col("_file_missing")
+        ).drop("_file_missing")
+
     elif status_col:
-        df = df[df[status_col] == False]
+        df = df.filter(pl.col(status_col) == False)
+
     elif check_file:
-        df = df[df[check_file].apply(file_missing)]
+        paths = df.select(check_file).to_series().to_list()
+        missing_mask = [
+            file_missing(p)
+            for p in tqdm(paths, desc="Checking files", unit="file")
+        ]
+
+        df = df.with_columns(
+            pl.Series("_file_missing", missing_mask)
+        )
+
+        df = df.filter(pl.col("_file_missing")).drop("_file_missing")
 
     print(f"Stage: {stage} ({config['description']})")
     print(f"  Total in manifest: {original_count:,}")
-    print(f"  Pending: {len(df):,}")
+    print(f"  Pending: {df.height:,}")
 
     return df
 
@@ -94,12 +117,12 @@ def prepare_stage(
     # Filter to pending items
     pending_df = filter_pending(manifest_path, stage)
 
-    if len(pending_df) == 0:
+    if pending_df.height == 0:
         print(f"\nNothing to do - all items complete for stage '{stage}'")
         return None
 
     # Limit items for devel mode
-    if max_items is not None and len(pending_df) > max_items:
+    if max_items is not None and pending_df.height > max_items:
         pending_df = pending_df.head(max_items)
         print(f"  Limited to: {max_items:,} items (--max-items)")
 
@@ -109,13 +132,13 @@ def prepare_stage(
 
     # Write pending parquet
     output_path = pending_dir / f"{stage}.parquet"
-    pending_df.to_parquet(output_path, index=False)
+    pending_df.write_parquet(output_path)
 
     print(f"\nWrote: {output_path}")
-    print(f"  Rows: {len(pending_df):,}")
+    print(f"  Rows: {pending_df.height:,}")
 
     # Calculate chunk info
-    total_rows = len(pending_df)
+    total_rows = pending_df.height
     actual_chunks = min(num_chunks, total_rows)
     items_per_chunk = (total_rows + actual_chunks - 1) // actual_chunks
 

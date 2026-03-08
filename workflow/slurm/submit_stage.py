@@ -208,6 +208,7 @@ def submit_update_job(
     resources: dict,
     project_dir: Path,
     log_dir: Path,
+    mode: str,
 ) -> str:
     """
     Submit update_manifest job that runs after array job completes.
@@ -224,8 +225,13 @@ def submit_update_job(
         Job ID of submitted update job
     """
     # Use shorter time for update job
-    update_time = "00:30:00"
-    update_partition = resources.get("partition", "short")
+    if mode=="devel":
+        update_time = "00:10:00"
+        update_partition = resources.get("partition", "devel")
+
+    else:
+        update_time = "00:30:00"
+        update_partition = resources.get("partition", "short")
 
     sbatch_cmd = [
         "sbatch",
@@ -365,6 +371,7 @@ def submit_stage_pipeline(
         resources=resources,
         project_dir=project_dir,
         log_dir=log_dir,
+        mode=mode,
     )
 
     print(f"\n✓ Submitted {stage}")
