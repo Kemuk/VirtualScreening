@@ -60,6 +60,8 @@ def prepare_aev_plig_csv(df: pd.DataFrame, output_path: Path) -> int:
         else:
             pK = 0.0  # Placeholder
 
+        pdb_code = extract_pdb_code(pdb_path)  # '6B0F', '2NSX', etc.
+
         rows.append({
             'unique_id': row['compound_key'],
             'pK': pK,
@@ -76,6 +78,13 @@ def prepare_aev_plig_csv(df: pd.DataFrame, output_path: Path) -> int:
 
     return len(rows)
 
+def extract_pdb_code(pdb_path: Path) -> str:
+    """Extract PDB code from COMPND line."""
+    with open(pdb_path) as f:
+        first_line = f.readline().strip()
+        if first_line.startswith('COMPND'):
+            return first_line.split()[1]  # "COMPND    3b1m" → "3b1m"
+    return ''
 
 def run_aev_plig(
     input_csv: Path,
@@ -104,8 +113,10 @@ def run_aev_plig(
     shutil.copy(input_csv, target_csv)
 
     # Run AEV-PLIG
+    plig_env="/data/stat-cadd/reub0582/aev-plig/bin/python"
+
     cmd = [
-        sys.executable,
+        plig_env,
         "process_and_predict.py",
         f"--dataset_csv=data/{data_name}.csv",
         f"--data_name={data_name}",
@@ -141,34 +152,30 @@ def run_aev_plig(
 def parse_predictions(predictions_path: Path) -> dict:
     """
     Parse AEV-PLIG predictions CSV.
-
-    Args:
-        predictions_path: Path to predictions CSV
-
+    
     Returns:
-        Dict mapping compound_key -> score
+        Dict mapping compound_key -> dict with all predictions
     """
     df = pd.read_csv(predictions_path)
-
-    # AEV-PLIG output has unique_id and prediction columns
-    # The best score is typically 'aev_plig_best_score' or similar
-    score_col = None
-    for col in ['aev_plig_best_score', 'prediction', 'best_score']:
-        if col in df.columns:
-            score_col = col
-            break
-
-    if score_col is None:
-        # Use last numeric column as score
-        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
-        if len(numeric_cols) > 0:
-            score_col = numeric_cols[-1]
-
-    if score_col is None:
-        return {}
-
-    return dict(zip(df['unique_id'], df[score_col]))
-
+    
+    # Build lookup: unique_id (compound_key) -> all prediction columns
+    result = {}
+    for _, row in df.iterrows():
+        compound_key = row['unique_id']  # unique_id IS the compound_key
+        
+        # Extract all prediction columns
+        preds = {}
+        if 'preds' in row:
+            preds['preds'] = row['preds']
+        
+        for i in range(10):
+            col_name = f'preds_{i}'
+            if col_name in row:
+                preds[col_name] = row[col_name]
+        
+        result[compound_key] = preds
+    
+    return result
 
 def process_slice(
     pending_path: Path,
@@ -194,7 +201,10 @@ def process_slice(
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    aev_plig_dir = Path(config.get('tools', {}).get('aev_plig_dir', 'AEV-PLIG'))
+    project_root = config_path.parent.parent.resolve()  # config/config.yaml -> /path/to/project
+    aev_plig_rel = config.get('tools', {}).get('aev_plig_dir', 'AEV-PLIG')
+    aev_plig_dir = (project_root / aev_plig_rel).resolve()  # Now absolute!
+
     model_name = config.get('rescoring', {}).get('model_name', 'model_GATv2Net_ligsim90_fep_benchmark')
 
     # Read slice
@@ -248,14 +258,26 @@ def process_slice(
                 docked_sdf_path = row.get('docked_sdf_path', '')
 
                 if compound_key in scores:
-                    results.append({
+                    preds = scores[compound_key]
+                    result = {
                         'compound_key': compound_key,
                         'ligand_id': ligand_id,
                         'docked_sdf_path': docked_sdf_path,
                         'success': True,
-                        'score': scores[compound_key],
                         'error': '',
-                    })
+                    }
+                    
+                    # Add ensemble prediction as binding_affinity_pK
+                    if 'preds' in preds:
+                        result['score'] = preds['preds']
+                    
+                    # Add individual model predictions
+                    for i in range(10):
+                        pred_col = f'preds_{i}'
+                        if pred_col in preds:
+                            result[f'aev_prediction_{i}'] = preds[pred_col]
+                    
+                    results.append(result)
                 else:
                     results.append({
                         'compound_key': compound_key,

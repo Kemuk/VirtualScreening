@@ -27,72 +27,52 @@ def filter_pending(
     manifest_path: Path,
     stage: str,
 ) -> pl.DataFrame:
-    """
-    Filter manifest to items pending processing for a stage.
-
-    Args:
-        manifest_path: Path to manifest.parquet
-        stage: Stage name
-
-    Returns:
-        DataFrame with pending items
-    """
     config = get_stage_config(stage)
 
-    # Load manifest
-    df = pl.read_parquet(manifest_path)
-    original_count = df.height
+    # Lazy scan
+    lf = pl.scan_parquet(manifest_path)
 
-    # Filter by dependency (previous stage must be complete)
-    depends_on = config.get('depends_on')
+    original_count = lf.select(pl.count()).collect().item()
+
+    # Dependency filter
+    depends_on = config.get("depends_on")
     if depends_on:
-        df = df.filter(pl.col(depends_on) == True)
+        lf = lf.filter(pl.col(depends_on))
 
-    status_col = config.get('status_column')
-    check_file = config.get('check_file_column')
+    status_col = config.get("status_column")
+    check_file = config.get("check_file_column")
 
-    def file_missing(path_str):
-        if path_str is None or path_str == "":
-            return True
-        return not Path(path_str).exists()
+    # Build file-missing expression (vectorised via Polars)
+    file_missing_expr = None
+    if check_file:
+        file_missing_expr = (
+            pl.when(pl.col(check_file).is_null() | (pl.col(check_file) == ""))
+            .then(True)
+            .otherwise(
+                pl.col(check_file).map_elements(
+                    lambda p: not Path(p).exists(),
+                    return_dtype=pl.Boolean,
+                )
+            )
+        )
 
+    # Build pending condition
     if status_col and check_file:
-        paths = df.select(check_file).to_series().to_list()
-        missing_mask = [
-            file_missing(p)
-            for p in tqdm(paths, desc="Checking files", unit="file")
-        ]
-
-        df = df.with_columns(
-            pl.Series("_file_missing", missing_mask)
-        )
-
-        df = df.filter(
-            (pl.col(status_col) == False) | pl.col("_file_missing")
-        ).drop("_file_missing")
-
+        pending_expr = (~pl.col(status_col)) | file_missing_expr
     elif status_col:
-        df = df.filter(pl.col(status_col) == False)
-
+        pending_expr = ~pl.col(status_col)
     elif check_file:
-        paths = df.select(check_file).to_series().to_list()
-        missing_mask = [
-            file_missing(p)
-            for p in tqdm(paths, desc="Checking files", unit="file")
-        ]
+        pending_expr = file_missing_expr
+    else:
+        pending_expr = pl.lit(True)
 
-        df = df.with_columns(
-            pl.Series("_file_missing", missing_mask)
-        )
-
-        df = df.filter(pl.col("_file_missing")).drop("_file_missing")
+    df = lf.filter(pending_expr).collect()
 
     print(f"Stage: {stage} ({config['description']})")
     print(f"  Total in manifest: {original_count:,}")
     print(f"  Pending: {df.height:,}")
 
     return df
-
 
 def prepare_stage(
     manifest_path: Path,
