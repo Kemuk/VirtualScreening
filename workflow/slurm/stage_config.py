@@ -55,7 +55,7 @@ STAGES = {
                     'cpus': 8,
                     'gpus': 1,
                     'partition': 'gpu',
-                    'max_concurrent': 20,
+                    'max_concurrent': 50,
                 },
                 'cpu': {
                     'time': '04:00:00',
