@@ -198,7 +198,7 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
     LOG_DIR="${PROJECT_DIR}/data/logs/slurm"
     mkdir -p "${LOG_DIR}"
 
-    SBATCH_CMD="sbatch --parsable --array=0-$ARRAY_END"
+    SBATCH_CMD="sbatch --parsable --array=0-$ARRAY_END%100"
     SBATCH_CMD="$SBATCH_CMD --output=${LOG_DIR}/${STAGE}_%A_%a.out"
     SBATCH_CMD="$SBATCH_CMD --error=${LOG_DIR}/${STAGE}_%A_%a.err"
     SBATCH_CMD="$SBATCH_CMD --export=ALL,PROJECT_DIR=${PROJECT_DIR},NUM_CHUNKS=${ACTUAL_CHUNKS}"

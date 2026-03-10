@@ -3,59 +3,36 @@ docking.smk
 
 Snakemake rules for molecular docking using AutoDock Vina (GPU/CPU).
 
+Simplified rules after consolidation:
+  - dock_ligand: Dock single ligand (development/testing)
+  - dock_all: Dock all ligands via SLURM array jobs (production)
+
 Docking mode is controlled by config['docking']['mode']:
   - 'gpu': Use GPU-accelerated Vina (default)
   - 'cpu': Use CPU-based Vina
-
-Rules:
-  - dock_ligand_gpu: Dock single ligand using GPU
-  - dock_ligand_cpu: Dock single ligand using CPU
-  - dock_all_gpu: Dock all ligands using GPU
-  - dock_all_cpu: Dock all ligands using CPU
-  - dock_all: Dock all ligands using configured mode
 """
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
-# Docking mode from config (gpu or cpu)
 DOCKING_MODE = config.get('docking', {}).get('mode', 'gpu')
-DOCK_CHUNKS = get_chunk_count("gpu")
-DOCK_CHUNK_IDS = list(range(DOCK_CHUNKS))
+MODE = config.get('mode', 'production')
 
-
-# =============================================================================
-# Rule Order
-# =============================================================================
-# When both GPU and CPU rules can produce same output, prefer based on config
-if DOCKING_MODE == 'gpu':
-    ruleorder: dock_ligand_gpu > dock_ligand_cpu
-else:
-    ruleorder: dock_ligand_cpu > dock_ligand_gpu
 
 
 # =============================================================================
-# GPU Docking
+# Single-file Docking (Development/Testing)
 # =============================================================================
 
-rule dock_ligand_gpu:
+rule dock_ligand:
     """
-    Dock a single ligand using GPU-accelerated Vina.
+    Dock a single ligand (for development/testing, not production).
 
-    Input:
-        - Receptor PDBQT
-        - Ligand PDBQT (prepared)
+    Unified rule that works for both GPU and CPU modes.
+    Mode determined by config['docking']['mode'] (gpu or cpu).
 
-    Output:
-        - Docked PDBQT with multiple binding modes
-        - Log file with scores
-
-    Wildcards:
-        dataset: Dataset name (e.g., LIT_PCBA)
-        target: Target protein ID (e.g., ADRB2)
-        ligand_class: 'actives' or 'inactives'
-        ligand_id: Ligand identifier
+    For production docking of all ligands, use: snakemake dock_all
     """
     input:
         receptor = "{dataset}/{target}/{target}_protein.pdbqt",
@@ -65,24 +42,28 @@ rule dock_ligand_gpu:
         docked = "{dataset}/{target}/docked_vina/{ligand_class}/{ligand_id}_docked.pdbqt",
 
     log:
-        "data/logs/docking/{dataset}_{target}_{ligand_class}_{ligand_id}_gpu.log"
+        "data/logs/docking/{dataset}_{target}_{ligand_class}_{ligand_id}.log"
 
     conda:
         "../envs/vscreen.yaml"
 
     resources:
-        mem_mb = lambda wildcards: get_resources('docking_gpu').get('mem_mb', 20000),
-        cpus = lambda wildcards: get_resources('docking_gpu').get('cpus', 2),
-        gpus = lambda wildcards: get_resources('docking_gpu').get('gpus', 1),
-        runtime = lambda wildcards: get_resources('docking_gpu').get('time_min', 720),
+        mem_mb = lambda wildcards: get_resources(f'docking_{DOCKING_MODE}').get('mem_mb', 20000),
+        cpus = lambda wildcards: get_resources(f'docking_{DOCKING_MODE}').get('cpus', 2),
+        gpus = lambda wildcards: get_resources(f'docking_{DOCKING_MODE}').get('gpus', 0) if DOCKING_MODE == 'gpu' else 0,
+        runtime = lambda wildcards: get_resources(f'docking_{DOCKING_MODE}').get('time_min', 720),
 
     params:
-        vina_bin = lambda wildcards: get_tool_path('vina_gpu'),
+        mode = DOCKING_MODE,
+        vina_bin = lambda wildcards: get_tool_path(f'vina_{DOCKING_MODE}'),
         exhaustiveness = lambda wildcards: config.get('docking', {}).get('exhaustiveness', 8),
         num_modes = lambda wildcards: config.get('docking', {}).get('num_modes', 9),
         energy_range = lambda wildcards: config.get('docking', {}).get('energy_range', 3),
         seed = lambda wildcards: config.get('docking', {}).get('seed', 42),
-        gpu_threads = lambda wildcards: config.get('gpu', {}).get('threads', 8000),
+        threads_or_gpu = lambda wildcards: (
+            config.get('gpu', {}).get('threads', 8000) if DOCKING_MODE == 'gpu'
+            else config.get('cpu', {}).get('threads', 8)
+        ),
         box = lambda wildcards: get_box_params_for_ligand(
             wildcards.target,
             wildcards.ligand_id,
@@ -90,7 +71,11 @@ rule dock_ligand_gpu:
 
     shell:
         """
-        module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 || true
+        # Load modules if needed for GPU
+        if [ "{params.mode}" = "gpu" ]; then
+            module load Boost/1.77.0-GCC-11.2.0 CUDA/12.0.0 2>/dev/null || true
+        fi
+
         python workflow/scripts/dock_vina.py \
             --receptor {input.receptor} \
             --ligand {input.ligand} \
@@ -106,72 +91,8 @@ rule dock_ligand_gpu:
             --num-modes {params.num_modes} \
             --energy-range {params.energy_range} \
             --seed {params.seed} \
-            --gpu-threads {params.gpu_threads} \
-            --mode gpu \
-            --progress \
-            2>&1 | tee {log}
-        """
-
-
-# =============================================================================
-# CPU Docking
-# =============================================================================
-
-rule dock_ligand_cpu:
-    """
-    Dock a single ligand using CPU Vina.
-
-    Same as dock_ligand_gpu but uses CPU threads instead of GPU.
-    """
-    input:
-        receptor = "{dataset}/{target}/{target}_protein.pdbqt",
-        ligand = "{dataset}/{target}/pdbqt/{ligand_class}/{ligand_id}.pdbqt",
-
-    output:
-        docked = "{dataset}/{target}/docked_vina/{ligand_class}/{ligand_id}_docked.pdbqt",
-
-    log:
-        "data/logs/docking/{dataset}_{target}_{ligand_class}_{ligand_id}_cpu.log"
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    resources:
-        mem_mb = lambda wildcards: get_resources('docking_cpu').get('mem_mb', 64000),
-        cpus = lambda wildcards: get_resources('docking_cpu').get('cpus', 32),
-        runtime = lambda wildcards: get_resources('docking_cpu').get('time_min', 720),
-
-    params:
-        vina_bin = lambda wildcards: get_tool_path('vina_cpu'),
-        exhaustiveness = lambda wildcards: config.get('docking', {}).get('exhaustiveness', 8),
-        num_modes = lambda wildcards: config.get('docking', {}).get('num_modes', 9),
-        energy_range = lambda wildcards: config.get('docking', {}).get('energy_range', 3),
-        seed = lambda wildcards: config.get('docking', {}).get('seed', 42),
-        cpu_threads = lambda wildcards: config.get('cpu', {}).get('threads', 8),
-        box = lambda wildcards: get_box_params_for_ligand(
-            wildcards.target,
-            wildcards.ligand_id,
-        ),
-
-    shell:
-        """
-        python workflow/scripts/dock_vina.py \
-            --receptor {input.receptor} \
-            --ligand {input.ligand} \
-            --output {output.docked} \
-            --center-x {params.box[center_x]} \
-            --center-y {params.box[center_y]} \
-            --center-z {params.box[center_z]} \
-            --size-x {params.box[size_x]} \
-            --size-y {params.box[size_y]} \
-            --size-z {params.box[size_z]} \
-            --vina-bin {params.vina_bin} \
-            --exhaustiveness {params.exhaustiveness} \
-            --num-modes {params.num_modes} \
-            --energy-range {params.energy_range} \
-            --seed {params.seed} \
-            --threads {params.cpu_threads} \
-            --mode cpu \
+            {"--gpu-threads" if params.mode == "gpu" else "--threads"} {params.threads_or_gpu} \
+            --mode {params.mode} \
             --progress \
             2>&1 | tee {log}
         """
@@ -216,129 +137,47 @@ def get_box_params_for_ligand(target_id: str, ligand_id: str) -> dict:
 
 
 # =============================================================================
-# Batch Docking Rules
+# Production Docking (SLURM Array Jobs)
 # =============================================================================
-
-rule shard_docking:
-    """Shard ligands needing docking into chunk CSVs."""
-    input:
-        manifest = MANIFEST_PATH,
-        prep_checkpoint = "data/logs/preparation/ligands_checkpoint.done",
-        receptors = rules.prepare_all_receptors.input,
-
-    output:
-        expand("data/chunks/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS)
-
-    log:
-        "data/logs/docking/shard_docking.log"
-
-    params:
-        num_chunks = DOCK_CHUNKS,
-        include_done = "--include-done" if config.get("mode", "production") == "devel" else "",
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    run:
-        with notify(rule):
-            shell(
-                "python workflow/scripts/shard_stage.py "
-                "--stage docking "
-                "--manifest {input.manifest} "
-                "--outdir data/chunks/docking "
-                "--num-chunks {params.num_chunks} "
-                "{params.include_done} "
-                "2>&1 | tee {log}"
-            )
-
-
-rule dock_array:
-    """Submit a SLURM array to dock all chunks for this stage."""
-    input:
-        expand("data/chunks/docking/chunk_{chunk}.csv", chunk=DOCK_CHUNK_IDS)
-
-    output:
-        touch("data/logs/docking/docking_array.done")
-
-    log:
-        "data/logs/docking/docking_array.log"
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    params:
-        mode = config.get("mode", "production"),
-        docking_mode = config.get("docking", {}).get("mode", "cpu"),
-
-    shell:
-        """
-        bash workflow/scripts/submit_docking_array.sh \
-            --chunks-dir data/chunks/docking \
-            --results-dir data/results/docking \
-            --log-dir data/logs/docking \
-            --slurm-log-dir data/logs/slurm \
-            --config config/config.yaml \
-            --mode {params.mode} \
-            --docking-mode {params.docking_mode} \
-            2>&1 | tee {log}
-        """
-
-
-rule merge_docking_results:
-    """Merge docking chunk results into the manifest."""
-    input:
-        manifest = MANIFEST_PATH,
-        array_done = "data/logs/docking/docking_array.done",
-
-    output:
-        touch("data/logs/docking/docking_checkpoint.done")
-
-    log:
-        "data/logs/docking/merge_docking_results.log"
-
-    conda:
-        "../envs/vscreen.yaml"
-
-    shell:
-        """
-        python workflow/scripts/merge_stage_results.py \
-            --stage docking \
-            --manifest {input.manifest} \
-            --results-dir data/results/docking \
-            2>&1 | tee {log}
-        """
-
 
 rule dock_all:
     """
-    Dock all prepared ligands using the configured mode.
+    Dock all prepared ligands via SLURM array jobs.
+
+    This is the recommended production method for docking large numbers of ligands.
+    Uses the unified submit_stage.py to handle SLURM job submission.
 
     Mode is determined by config['docking']['mode']:
       - 'gpu': Uses GPU-accelerated Vina
       - 'cpu': Uses CPU-based Vina
     """
     input:
-        "data/logs/docking/docking_checkpoint.done"
+        manifest = MANIFEST_PATH,
+        receptors = lambda wildcards: expand(
+            "{dataset}/{target}/{target}_protein.pdbqt",
+            dataset=config['dataset'],
+            target=get_targets()
+        ),
 
-    message:
-        f"Docking complete using {DOCKING_MODE.upper()} mode!"
+    output:
+        checkpoint = touch("data/logs/docking/docking_checkpoint.done")
 
+    log:
+        "data/logs/docking/dock_all.log"
 
-# =============================================================================
-# Docking Mode Info
-# =============================================================================
+    conda:
+        "../envs/vscreen.yaml"
 
-rule docking_info:
-    """
-    Print current docking configuration.
-    """
-    run:
-        print(f"\nDocking Configuration:")
-        print(f"  Mode: {DOCKING_MODE}")
-        print(f"  Vina binary: {config.get('tools', {}).get(f'vina_{DOCKING_MODE}', 'N/A')}")
-        print(f"  Exhaustiveness: {config.get('docking', {}).get('exhaustiveness', 8)}")
-        print(f"  Num modes: {config.get('docking', {}).get('num_modes', 9)}")
-        if DOCKING_MODE == 'gpu':
-            print(f"  GPU threads: {config.get('gpu', {}).get('threads', 8000)}")
-        else:
-            print(f"  CPU threads: {config.get('cpu', {}).get('threads', 8)}")
+    params:
+        mode = MODE,
+        docking_mode = DOCKING_MODE,
+
+    shell:
+        """
+        python -m workflow.slurm.submit_stage \
+            --stage docking \
+            --mode {params.mode} \
+            --docking-mode {params.docking_mode} \
+            --manifest {input.manifest} \
+            2>&1 | tee {log}
+        """

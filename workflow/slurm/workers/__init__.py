@@ -100,34 +100,38 @@ def write_results(
 ) -> Path:
     """
     Write worker results to CSV with consistent columns.
-
+    
     Args:
         results: List of result dicts
         results_dir: Directory for result files
         stage: Stage name
         task_id: SLURM_ARRAY_TASK_ID
         columns: Optional list of columns to include (uses STAGE_COLUMNS if not provided)
-
+    
     Returns:
         Path to written CSV file
     """
     results_dir.mkdir(parents=True, exist_ok=True)
     output_path = results_dir / f"{stage}_{task_id:05d}.csv"
-
+    
     # Get expected columns for this stage
     if columns is None:
         columns = STAGE_COLUMNS.get(stage, None)
-
+    
     df = pd.DataFrame(results)
-
+    
     # Ensure all expected columns exist (fill missing with empty string)
     if columns:
         for col in columns:
             if col not in df.columns:
                 df[col] = ''
-        # Reorder to match expected column order
-        df = df[columns]
-
+        
+        # Keep all columns, but reorder so expected columns come first
+        # This preserves prediction columns and any other extra columns
+        pred_cols = [col for col in df.columns if 'pred' in col]
+        other_cols = [col for col in df.columns if col not in columns and 'pred' not in col]
+        ordered_cols = columns + pred_cols + other_cols
+        df = df[[col for col in ordered_cols if col in df.columns]]
+    
     df.to_csv(output_path, index=False)
-
     return output_path

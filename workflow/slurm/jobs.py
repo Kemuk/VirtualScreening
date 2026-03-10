@@ -65,7 +65,7 @@ def create_chunks(
     Returns:
         Number of chunks created
     """
-    max_array = PARTITION_CONFIG.get(partition, {}).get('max_array_size', 1000)
+    max_array = PARTITION_CONFIG.get(partition, {}).get('max_array_size', 200)
 
     # Apply stage-specific max_chunks limit if provided
     if max_chunks is not None:
@@ -198,7 +198,7 @@ def submit_array(
     # Build sbatch command
     cmd = [
         'sbatch',
-        f'--array=0-{n_chunks - 1}',
+        f'--array=0-{n_chunks - 1}%100',
         f'--time={time_str}',
         f'--mem={mem}',
         f'--job-name=vs-{stage}',

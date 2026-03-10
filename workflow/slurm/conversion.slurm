@@ -14,6 +14,8 @@
 
 set -euo pipefail
 
+module purge
+
 # Project directory (must be set by run_stage.sh or fallback to SLURM_SUBMIT_DIR)
 PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 cd "${PROJECT_DIR}"
@@ -27,11 +29,17 @@ RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 # Create log directory
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 
-# Load OpenBabel if needed
-module load OpenBabel 2>/dev/null || true
+source $(conda info --base)/etc/profile.d/conda.sh
 
 # Activate conda environment
-source activate snakemake_env 2>/dev/null || conda activate snakemake_env 2>/dev/null || true
+conda activate "$DATA/snakemake_env"
+export PATH="$DATA/snakemake_env/bin:$PATH"
+
+export OBABEL_BIN="/data/stat-cadd/reub0582/snakemake_env/bin/obabel"
+export BABEL_LIBDIR="/data/stat-cadd/reub0582/snakemake_env/lib/openbabel/3.1.0"
+echo "BABEL_LIBDIR: ${BABEL_LIBDIR}"
+
+which obabel
 
 # Print job info
 echo "=========================================="
@@ -45,7 +53,7 @@ echo "Hostname: $(hostname)"
 echo "=========================================="
 
 # Run worker
-python -m workflow.slurm.workers.conversion \
+conda run -p $CONPREFIX python -m workflow.slurm.workers.conversion \
     --pending "${PENDING_FILE}" \
     --task-id "${SLURM_ARRAY_TASK_ID}" \
     --num-chunks "${NUM_CHUNKS}" \

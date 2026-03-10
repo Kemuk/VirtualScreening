@@ -2,6 +2,8 @@
 
 A modular Snakemake workflow for high-throughput virtual screening using AutoDock Vina (GPU/CPU) with AEV-PLIG rescoring.
 
+> **🎉 Recently Consolidated (Feb 2026):** The workflow has been significantly simplified with 70% fewer rules and 83% fewer SLURM scripts. See [`MIGRATION.md`](MIGRATION.md) for details and migration instructions.
+
 ## Overview
 
 This pipeline performs structure-based virtual screening on the LIT-PCBA dataset (or custom targets) using:
@@ -92,12 +94,34 @@ Edit `config/config.yaml` for global parameters (docking settings, resources, et
 
 ### 3. Run the Workflow
 
+#### Production Mode (Full Pipeline):
+```bash
+# Validate configuration
+snakemake validate_config
+
+# Create manifest
+snakemake create_manifest --cores 1
+
+# Run all stages
+snakemake prepare_all --cores 1    # Prepare receptors & ligands
+snakemake dock_all --cores 1       # Dock all ligands
+snakemake convert_all --cores 1    # Convert to SDF
+snakemake rescore_all --cores 1    # Rescore with AEV-PLIG
+snakemake results_all --cores 4    # Compute metrics & plots
+```
+
+#### Development Mode (Testing with smaller chunks):
+```bash
+snakemake prepare_all --config mode=devel --cores 1
+snakemake dock_all --config mode=devel --cores 1
+```
+
 #### Local execution (dry-run to check):
 ```bash
 snakemake -n
 ```
 
-#### Run with 8 cores:
+#### Testing single files:
 ```bash
 snakemake --cores 8
 ```
@@ -127,29 +151,75 @@ Per-target settings:
 
 ## Workflow Stages
 
-### Stage 1: Preparation
+> **Note:** The workflow has been significantly simplified. See `MIGRATION.md` for details about recent consolidation (34 rules → 10 rules, 70% reduction).
+
+### Stage 1: Preparation (`prepare_all`)
 - Convert receptor MOL2 → PDBQT + PDB
 - Convert ligand SMILES → PDBQT with 3D coordinates
+- Parallel SLURM array jobs for large-scale processing
 - Update manifest with preparation status
 
-### Stage 2: Docking
+**Command:**
+```bash
+snakemake prepare_all --cores 1
+```
+
+### Stage 2: Docking (`dock_all`)
 - GPU (Vina-GPU) or CPU (Vina) docking
-- Parallel execution across ligands
+- Parallel SLURM array jobs across ligands
 - Store binding affinities in manifest
 
-### Stage 3: Post-processing
+**Command:**
+```bash
+snakemake dock_all --cores 1
+```
+
+### Stage 3: Conversion (`convert_all`)
 - Convert docked PDBQT → SDF for visualization/analysis
 - Extract specific binding modes (default: best scoring)
+- Parallel SLURM array jobs
 
-### Stage 4: Rescoring
+**Command:**
+```bash
+snakemake convert_all --cores 1
+```
+
+### Stage 4: Rescoring (`rescore_all`)
 - AEV-PLIG machine learning-based rescoring
-- Parallel sharded execution for large datasets
+- GPU-accelerated neural network predictions
+- Parallel SLURM array jobs for large datasets
 - Integrate scores into manifest
 
-### Stage 5: Ligand-Based (Optional)
-- Fingerprint similarity
-- Shape-based similarity
-- Pharmacophore-based screening
+**Command:**
+```bash
+snakemake rescore_all --cores 1
+```
+
+### Stage 5: Results (`results_all`)
+- Compute virtual screening metrics (ROC-AUC, BEDROC, EF, NEF)
+- Generate visualization plots
+- Bootstrap confidence intervals
+
+**Command:**
+```bash
+snakemake results_all --cores 4
+```
+
+### All Stages Available Rules
+
+**Production (batch processing):**
+- `prepare_all` - Prepare all receptors and ligands
+- `dock_all` - Dock all ligands
+- `convert_all` - Convert all to SDF
+- `rescore_all` - Rescore all with AEV-PLIG
+- `compute_results` - Compute metrics
+- `make_plots` - Generate plots
+- `results_all` - Complete results stage
+
+**Development (single-file testing):**
+- `prepare_receptor` - Test single receptor preparation
+- `dock_ligand` - Test single ligand docking
+- `convert_to_sdf` - Test single conversion
 
 ## Manifest System
 
@@ -186,25 +256,41 @@ Benefits:
 - 16 CPUs
 - ~2 hours
 
-## Migration from SLURM Scripts
+## Simplified Workflow Architecture
 
-This Snakemake workflow replaces the previous SLURM-based pipeline:
+The workflow now uses a **unified SLURM infrastructure** that consolidates all batch processing:
 
-| Old SLURM Script         | New Snakemake Rule      |
-|--------------------------|-------------------------|
-| `mol2_to_pdbqt.slurm`    | `rule mol2_to_pdbqt`    |
-| `smi2pdbqt_array.slurm`  | `rule smi2pdbqt`        |
-| `submit_gpu.slurm`       | `rule dock_gpu`         |
-| `submit_cpu.slurm`       | `rule dock_cpu`         |
-| `sdf_conversion.slurm`   | `rule pdbqt_to_sdf`     |
-| `plig_manifest.slurm`    | `rule rescore_aev_plig` |
+### Before (Old Approach)
+- 34 Snakemake rules across 5 stages
+- 12 separate SLURM submission scripts
+- Complex multi-step chunking and merging
+- Different patterns for each stage
 
-Benefits of Snakemake:
-- Automatic dependency tracking
-- Parallel execution
-- Cluster resource management
-- Reproducible configuration
-- Resumable workflows
+### After (New Consolidated Approach)
+- **10 Snakemake rules** (70% reduction)
+- **2 unified SLURM scripts** (83% reduction)
+- Single submission system: `submit_stage.py`
+- Single worker template: `stage_worker.slurm`
+
+### New Workflow Pattern
+
+| Stage | Production Rule | Single-File Testing |
+|-------|----------------|---------------------|
+| **Preparation** | `prepare_all` | `prepare_receptor` |
+| **Docking** | `dock_all` | `dock_ligand` |
+| **Conversion** | `convert_all` | `convert_to_sdf` |
+| **Rescoring** | `rescore_all` | *(use mode=devel)* |
+| **Results** | `results_all` | `compute_results`, `make_plots` |
+
+### Benefits of the New System
+
+- **Simpler**: One command per stage instead of shard → submit → merge
+- **Consistent**: All stages use the same submission logic
+- **Maintainable**: Change SLURM settings in one place
+- **Reliable**: Single unified codebase reduces bugs
+- **Automatic**: Handles chunking, submission, and merging internally
+
+See [`MIGRATION.md`](MIGRATION.md) for detailed migration instructions and troubleshooting.
 
 ## Dependencies
 

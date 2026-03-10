@@ -14,6 +14,8 @@
 
 set -euo pipefail
 
+module purge
+
 # Project directory (must be set by run_stage.sh or fallback to SLURM_SUBMIT_DIR)
 PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 cd "${PROJECT_DIR}"
@@ -30,8 +32,12 @@ mkdir -p "${PROJECT_DIR}/data/logs/slurm"
 # Load required modules
 module load CUDA/11.7.0 2>/dev/null || true
 
+source $(conda info --base)/etc/profile.d/conda.sh
+
+export CONPREFIX="$DATA/envs/aev-plig"
 # Activate conda environment
-source activate snakemake_env 2>/dev/null || conda activate snakemake_env 2>/dev/null || true
+conda activate "$DATA/envs/aev-plig"
+export PATH="$DATA/envs/aev-plig/bin:$PATH"
 
 # Print job info
 echo "=========================================="
@@ -46,7 +52,7 @@ echo "GPU: ${CUDA_VISIBLE_DEVICES:-none}"
 echo "=========================================="
 
 # Run worker
-python -m workflow.slurm.workers.aev_infer \
+conda run -p $CONPREFIX python -m workflow.slurm.workers.aev_infer \
     --pending "${PENDING_FILE}" \
     --task-id "${SLURM_ARRAY_TASK_ID}" \
     --num-chunks "${NUM_CHUNKS}" \

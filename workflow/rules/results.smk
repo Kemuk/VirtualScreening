@@ -3,15 +3,15 @@ results.smk
 
 Snakemake rules for computing and visualizing virtual screening results.
 
+Simplified rules after consolidation:
+  - compute_results: Calculate metrics from manifest
+  - make_plots: Generate visualization plots
+  - results_all: Complete results stage (metrics + plots)
+
 Results workflow:
   1. Compute per-target metrics (ROC-AUC, BEDROC, EF, NEF)
   2. Aggregate with bootstrap confidence intervals
   3. Create visualization plots
-
-Rules:
-  - compute_results: Calculate metrics from manifest
-  - make_plots: Generate visualization plots
-  - results_all: Complete results stage
 """
 
 
@@ -116,6 +116,13 @@ rule make_plots:
 rule results_all:
     """
     Complete results stage: compute metrics and create plots.
+
+    This orchestrates the full results generation:
+      1. Compute metrics (ROC-AUC, BEDROC, EF, NEF) from manifest
+      2. Generate visualization plots
+
+    For metrics only: snakemake compute_results
+    For plots only: snakemake make_plots
     """
     input:
         f"{RESULTS_DIR}/per_target_metrics.csv",
@@ -124,26 +131,3 @@ rule results_all:
 
     message:
         "Results computation and visualization complete!"
-
-
-rule results_metrics_only:
-    """
-    Only compute metrics (no plots).
-    """
-    input:
-        f"{RESULTS_DIR}/per_target_metrics.csv",
-        f"{RESULTS_DIR}/summary.csv",
-
-    message:
-        "Metrics computation complete!"
-
-
-rule results_plots_only:
-    """
-    Only create plots (assumes metrics already computed).
-    """
-    input:
-        f"{RESULTS_DIR}/plots",
-
-    message:
-        "Plot generation complete!"

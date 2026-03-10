@@ -1,51 +1,40 @@
 #!/usr/bin/env python3
 """
 update_manifest.py
-
 Merge results from worker CSV files back into the manifest.
-
 Usage:
     python -m workflow.slurm.update_manifest --stage docking
-
 Input:
     - data/master/manifest.parquet
     - data/master/results/{stage}_*.csv
-
 Output:
     - data/master/manifest.parquet (updated)
 """
-
 import argparse
 import fcntl
 import sys
 from pathlib import Path
-
 import pandas as pd
+import shutil
+from datetime import datetime
 import pyarrow.parquet as pq
-
 from workflow.slurm.stage_config import get_stage_config, list_stages
-
 
 def load_results(results_dir: Path, stage: str) -> pd.DataFrame:
     """
     Load and concatenate all result CSV files for a stage.
-
     Args:
         results_dir: Directory containing result files
         stage: Stage name
-
     Returns:
         DataFrame with all results
     """
     pattern = f"{stage}_*.csv"
     result_files = sorted(results_dir.glob(pattern))
-
     if not result_files:
         print(f"No result files found matching: {results_dir / pattern}")
         return pd.DataFrame()
-
     print(f"Found {len(result_files)} result files")
-
     # Load and concatenate
     dfs = []
     for f in result_files:
@@ -54,15 +43,35 @@ def load_results(results_dir: Path, stage: str) -> pd.DataFrame:
             dfs.append(df)
         except Exception as e:
             print(f"WARNING: Failed to read {f}: {e}")
-
     if not dfs:
         return pd.DataFrame()
-
     results = pd.concat(dfs, ignore_index=True)
     print(f"  Total results: {len(results):,}")
-
     return results
 
+def backup_manifest(manifest_path: Path) -> Path:
+    """
+    Create timestamped backup of manifest before modification.
+
+    Args:
+        manifest_path: Path to manifest.parquet
+
+    Returns:
+        Path to backup file
+    """
+    if not manifest_path.exists():
+        return None
+
+    backup_dir = manifest_path.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"manifest_{timestamp}.parquet"
+
+    shutil.copy2(manifest_path, backup_path)
+    print(f"Created backup: {backup_path}")
+
+    return backup_path
 
 def update_manifest(
     manifest_path: Path,
@@ -71,28 +80,25 @@ def update_manifest(
 ) -> int:
     """
     Update manifest with results from worker CSV files.
-
     Uses file locking to prevent concurrent writes.
-
     Args:
         manifest_path: Path to manifest.parquet
         stage: Stage name
         results_dir: Directory containing result CSV files
-
     Returns:
         Number of items updated
     """
+
+    backup_manifest(manifest_path)
+
     config = get_stage_config(stage)
     status_col = config.get('status_column')
     score_col = config.get('score_column')
-
     # Load results
     results = load_results(results_dir, stage)
-
     if results.empty:
         print("No results to merge")
         return 0
-
     # Filter to successful results
     if 'success' in results.columns:
         successful = results[results['success'] == True]
@@ -102,55 +108,59 @@ def update_manifest(
     else:
         successful = results
         failed = pd.DataFrame()
-
     if successful.empty:
         print("No successful results to merge")
         return 0
-
     # Acquire lock and update manifest
     lock_path = manifest_path.with_suffix('.lock')
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-
     with open(lock_path, 'w') as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         try:
             # Load manifest
             manifest = pq.read_table(manifest_path).to_pandas()
             print(f"\nManifest loaded: {len(manifest):,} rows")
-
             # Get compound_keys that succeeded
             completed_keys = set(successful['compound_key'])
-
             # Update status column
             if status_col:
                 mask = manifest['compound_key'].isin(completed_keys)
                 manifest.loc[mask, status_col] = True
                 print(f"  Updated {status_col}: {mask.sum():,} rows")
-
             # Update score column if present in results
             if score_col and 'score' in successful.columns:
                 # Create mapping from compound_key to score
                 score_map = successful.set_index('compound_key')['score'].to_dict()
-
                 # Update scores
                 def get_score(key):
                     return score_map.get(key)
-
                 mask = manifest['compound_key'].isin(completed_keys)
                 manifest.loc[mask, score_col] = manifest.loc[mask, 'compound_key'].apply(get_score)
                 print(f"  Updated {score_col}: {mask.sum():,} rows")
+
+            # Update all columns containing "pred" from results
+            pred_cols = [col for col in successful.columns if 'pred' in col]
+
+            if pred_cols:
+                print(f"  Updating {len(pred_cols)} prediction columns from results")
+                
+                # Merge on compound_key - updates matching rows with values from results
+                update_df = successful[['compound_key'] + pred_cols].set_index('compound_key')
+                manifest = manifest.set_index('compound_key')
+                manifest.update(update_df)
+                manifest = manifest.reset_index()
+                
+                print(f"  Updated columns: {', '.join(pred_cols)}")
+
 
             # Atomic write
             temp_path = manifest_path.with_suffix('.tmp')
             manifest.to_parquet(temp_path, index=False)
             temp_path.rename(manifest_path)
-
             print(f"\nManifest updated: {manifest_path}")
             return len(completed_keys)
-
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -175,28 +185,22 @@ def main():
         default=Path("data/master/results"),
         help="Directory containing result CSV files (default: data/master/results)"
     )
-
     args = parser.parse_args()
-
     # Validate inputs
     if not args.manifest.exists():
         print(f"ERROR: Manifest not found: {args.manifest}", file=sys.stderr)
         sys.exit(1)
-
     if not args.results_dir.exists():
         print(f"ERROR: Results directory not found: {args.results_dir}", file=sys.stderr)
         sys.exit(1)
-
     # Update manifest
     num_updated = update_manifest(
         manifest_path=args.manifest,
         stage=args.stage,
         results_dir=args.results_dir,
     )
-
     print(f"\nDone. Updated {num_updated:,} items.")
     sys.exit(0)
-
 
 if __name__ == "__main__":
     main()

@@ -41,7 +41,7 @@ chunking:
     chunks: 5
   production:
     cpu_chunks: 100
-    gpu_chunks: 1000
+    gpu_chunks: 200
 
 # Paths
 # -----
