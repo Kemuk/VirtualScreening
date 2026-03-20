@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.10.0"
+__generated_with = "0.20.2"
 app = marimo.App(width="full", app_title="Virtual Screening Results")
 
 
@@ -20,13 +20,11 @@ def _():
         HAS_RDKIT = True
     except ImportError:
         HAS_RDKIT = False
-
     return (
         HAS_RDKIT,
         Path,
         RDScoring,
         average_precision_score,
-        gridspec,
         math,
         mo,
         np,
@@ -51,60 +49,68 @@ def _(Path, mo):
     Comparing Vina docking scores (converted to pK binding affinity) against
     AEV-PLIG rescoring predictions across all targets.
     """)
-
-    return BEDROC_ALPHA, FRACS, MANIFEST_PATH, PROJECT_ROOT
+    return BEDROC_ALPHA, FRACS, MANIFEST_PATH
 
 
 @app.cell
 def _(MANIFEST_PATH, pl):
     _raw = pl.read_parquet(MANIFEST_PATH)
 
-    # Prefer rescored entries; fall back to docked-only
     df = _raw.filter(pl.col("rescoring_status") == True)
-    _source = "rescored"
     if df.is_empty():
         df = _raw.filter(pl.col("docking_status") == True)
-        _source = "docked (no rescoring)"
 
-    # Both scores expressed as pK (higher = better binding)
-    # binding_affinity_pK = -vina_score / (2.303 * R * T) is pre-computed in the manifest
-    # aev_plig_best_score is already in pK units
+    R = 0.001987
+    T = 298.0
+
+    # Individual ensemble columns — drop any that are entirely null
+    _pred_cols = [f"aev_prediction_{i}" for i in range(10)]
+    _pred_cols = [c for c in _pred_cols if c in df.columns and df[c].is_not_null().any()]
+
     df = df.with_columns(
-        pl.col("binding_affinity_pK").alias("vina_pK"),
-        pl.col("aev_plig_best_score").alias("aev_plig_pK"),
+        (-pl.col("vina_score") / (2.303 * R * T)).alias("vina_pK"),
+        pl.mean_horizontal(_pred_cols).alias("aev_plig_pK"),
+        *[pl.col(c).alias(c) for c in _pred_cols],
     )
 
-    _source, df
+    df = df.filter(
+        pl.col("aev_plig_pK").is_not_null() &
+        pl.col("vina_pK").is_not_null()
+    )
 
-    return df,
+    assay_map = {
+        "ALDH1": "biochemical", "IDH1": "biochemical", "VDR": "biochemical",
+        "FEN1": "biochemical", "KAT2A": "biochemical", "PKM2": "biochemical",
+        "GBA": "biochemical", "ADRB2": "cell-based", "ESR1_ago": "cell-based",
+        "ESR1_ant": "cell-based", "MAPK1": "cell-based", "MTORC1": "cell-based",
+        "OPRK1": "cell-based", "PPARG": "cell-based", "TP53": "cell-based",
+    }
+
+    df = df.with_columns(
+        pl.col("protein_id").replace(assay_map).alias("assay_type")
+    )
+
+    PRED_COLS = _pred_cols
+    df, assay_map, PRED_COLS
+    return (df,)
 
 
 @app.cell
-def _(df, mo):
-    _s = df.select(
-        pl.col("protein_id").n_unique().alias("Targets"),
-        pl.len().alias("Compounds"),
-        pl.col("is_active").sum().cast(pl.Int64).alias("Actives"),
-        (pl.col("is_active").mean() * 100).round(1).alias("Active %"),
-        pl.col("vina_pK").is_not_null().sum().alias("Vina scores"),
-        pl.col("aev_plig_pK").is_not_null().sum().alias("AEV-PLIG scores"),
-    ).row(0, named=True)
-
-    mo.hstack([
-        mo.stat(value=str(_s["Targets"]),      label="Targets"),
-        mo.stat(value=f'{_s["Compounds"]:,}',  label="Compounds"),
-        mo.stat(value=f'{_s["Actives"]:,}',    label="Actives"),
-        mo.stat(value=f'{_s["Active %"]}%',    label="Active rate"),
-        mo.stat(value=f'{_s["Vina scores"]:,}',     label="Vina scores"),
-        mo.stat(value=f'{_s["AEV-PLIG scores"]:,}', label="AEV-PLIG scores"),
-    ])
-
+def _():
     return
 
 
 @app.cell
-def _(BEDROC_ALPHA, FRACS, HAS_RDKIT, RDScoring, average_precision_score,
-       math, np, roc_auc_score):
+def _(
+    BEDROC_ALPHA,
+    FRACS,
+    HAS_RDKIT,
+    RDScoring,
+    average_precision_score,
+    math,
+    np,
+    roc_auc_score,
+):
     def _rdkit_table(labels, scores):
         """Sort descending (higher-is-better) for RDKit metrics."""
         order = np.argsort(scores)[::-1]
@@ -140,7 +146,7 @@ def _(BEDROC_ALPHA, FRACS, HAS_RDKIT, RDScoring, average_precision_score,
 
         return metrics
 
-    return compute_metrics,
+    return (compute_metrics,)
 
 
 @app.cell
@@ -170,21 +176,20 @@ def _(compute_metrics, df, np, pl):
 
     per_target = pl.DataFrame(_rows)
     per_target
-
-    return per_target,
+    return (per_target,)
 
 
 @app.cell
-def _(mo, per_target):
-    mo.md("### Per-target metrics")
-
+def _(mo):
+    mo.md("""
+    ### Per-target metrics
+    """)
     return
 
 
 @app.cell
 def _(mo, per_target):
     mo.ui.table(per_target, selection=None)
-
     return
 
 
@@ -205,7 +210,6 @@ def _(mo, per_target, pl):
         mo.md("### Aggregated metrics (median across targets)"),
         mo.ui.table(_agg, selection=None),
     ])
-
     return
 
 
@@ -263,8 +267,7 @@ def _(df, mo, np, per_target, pl, plt):
 
     plt.tight_layout()
     mo.mpl.interactive(fig)
-
-    return axes, fig
+    return
 
 
 @app.cell
@@ -285,7 +288,144 @@ def _(df, mo, pl, plt):
     _ax2.legend()
     plt.tight_layout()
     mo.mpl.interactive(_fig2)
+    return
 
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(df, mo, np, pl):
+    from scipy.stats import mannwhitneyu
+
+    def _rank_biserial_r(U, n1, n2):
+        return 1 - (2 * U) / (n1 * n2)
+
+    _assay_map = {
+        "ALDH1": "biochemical", "IDH1": "biochemical", "VDR": "biochemical",
+        "FEN1": "biochemical", "KAT2A": "biochemical", "PKM2": "biochemical",
+        "GBA": "biochemical", "ADRB2": "cell-based", "ESR1_ago": "cell-based",
+        "ESR1_ant": "cell-based", "MAPK1": "cell-based", "MTORC1": "cell-based",
+        "OPRK1": "cell-based", "PPARG": "cell-based", "TP53": "cell-based",
+    }
+
+    _rows = []
+
+    for (_target,), _grp in df.partition_by("protein_id", as_dict=True).items():
+        _labels = _grp["is_active"].cast(pl.Int8).to_numpy()
+
+        for _method, _col in [("Vina", "vina_pK"), ("AEV-PLIG", "aev_plig_pK")]:
+            _scores = _grp[_col].to_numpy()
+            _valid  = np.isfinite(_scores)
+            _lbl    = _labels[_valid]
+            _scr    = _scores[_valid]
+
+            _actives   = _scr[_lbl == 1]
+            _inactives = _scr[_lbl == 0]
+
+            if len(_actives) < 2 or len(_inactives) < 2:
+                continue
+
+            _U, _p = mannwhitneyu(_actives, _inactives, alternative="greater")
+            _r = _rank_biserial_r(_U, len(_actives), len(_inactives))
+
+            _rows.append({
+                    "Target":      _target,
+                    "assay_type":  _assay_map.get(_target, "unknown"),
+                    "Method":      _method,
+                    "N actives":   len(_actives),
+                    "N inactives": len(_inactives),
+                    "U statistic": round(_U, 1),
+                    "p-value":     round(_p, 4),
+                    "r (effect)":  round(_r, 3),
+                    "Significant": "✓" if _p < 0.05 else "✗",
+                })
+
+    per_protein_tests = pl.DataFrame(_rows)
+
+    _summary = (
+        per_protein_tests
+        .group_by(["assay_type", "Method"])
+        .agg([
+            pl.len().alias("N targets"),
+            pl.median("r (effect)").round(3).alias("median r"),
+            pl.col("r (effect)").min().round(3).alias("min r"),
+            pl.col("r (effect)").max().round(3).alias("max r"),
+            (pl.col("p-value") < 0.05).sum().alias("N significant"),
+        ])
+        .sort(["assay_type", "Method"])
+    )
+
+    mo.vstack([
+        mo.md("### Per-protein Mann-Whitney U (actives vs inactives, one-sided)"),
+        mo.md("Positive r → actives rank higher than inactives; r close to 1 → perfect separation."),
+        mo.ui.table(per_protein_tests, selection=None),
+        mo.md("### Assay-type summary (median effect size across proteins)"),
+        mo.ui.table(_summary, selection=None),
+    ])
+    return (per_protein_tests,)
+
+
+@app.cell
+def _(mo, per_protein_tests, pl, plt):
+    _assay_order = ["biochemical", "cell-based"]
+    _method_colours = {"Vina": "#4C72B0", "AEV-PLIG": "#DD8452"}
+    _alpha = 0.05
+
+    _fig, _axes = plt.subplots(1, 2, figsize=(10, 5), sharey=True)
+
+    for _ci, _assay in enumerate(_assay_order):
+        _ax = _axes[_ci]
+        _grp = (
+            per_protein_tests
+            .filter(pl.col("assay_type") == _assay)
+            .sort("Target")
+        )
+        _targets = _grp.filter(pl.col("Method") == "Vina")["Target"].to_list()
+
+        for _t in _targets:
+            _rows = _grp.filter(pl.col("Target") == _t)
+            _r_vina = _rows.filter(pl.col("Method") == "Vina")["r (effect)"][0]
+            _r_aev  = _rows.filter(pl.col("Method") == "AEV-PLIG")["r (effect)"][0]
+            _ax.plot([0, 1], [_r_vina, _r_aev], color="grey", alpha=0.4, linewidth=1)
+
+        for _method in ["Vina", "AEV-PLIG"]:
+            _m = _grp.filter(pl.col("Method") == _method)
+            _x = 0 if _method == "Vina" else 1
+            _sig = _m["p-value"].to_numpy() < _alpha
+            _r   = _m["r (effect)"].to_numpy()
+            _t   = _m["Target"].to_list()
+
+            _ax.scatter(
+                [_x] * len(_r), _r,
+                color=_method_colours[_method],
+                marker="o", s=60, zorder=3,
+                alpha=0.9, label=_method,
+            )
+            for _ti, (_ri, _si) in enumerate(zip(_r, _sig)):
+                _ax.text(
+                    _x + 0.04, _ri, _t[_ti],
+                    va="center", fontsize=7, color="grey",
+                )
+
+        _ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        _ax.set_xticks([0, 1])
+        _ax.set_xticklabels(["Vina", "AEV-PLIG"])
+        _ax.set_title(_assay)
+        _ax.set_xlim(-0.4, 1.8)
+        if _ci == 0:
+            _ax.set_ylabel("Rank-biserial r  (actives vs inactives)")
+
+    _axes[0].legend(loc="lower right", fontsize=8)
+    _fig.suptitle("Discriminative ability per protein — Mann-Whitney effect size", y=1.02)
+    plt.tight_layout()
+
+    mo.vstack([
+        mo.md("### Effect sizes by assay type and method"),
+        mo.mpl.interactive(_fig),
+    ])
     return
 
 
