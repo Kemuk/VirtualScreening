@@ -110,15 +110,18 @@ results:
     - 0.05
     - 0.10
 
-# Ligand-Based Methods
-# --------------------
+# Ligand-Based Screening (optional step, SMILES-only, no docking required)
+# -------------------------------------------------------------------------
+# Enable with: ligand_based.enabled: true
+# Run all targets:  python -m workflow.slurm.workers.ligand_based --manifest ... --output ...
+# Run single target: add --target ADRB2 (useful for devel/testing)
+# Via SLURM:        sbatch workflow/slurm/ligand_based.slurm
 ligand_based:
-  enabled: false                   # Enable/disable ligand-based screening
-  n_jobs: 8                        # Parallel jobs for ligand-based methods
-  methods:
-    - "fingerprint"
-    - "shape"
-    - "pharmacophore"
+  enabled: false                    # Set true to activate the Snakemake rule
+  method: usrcat                    # Method registry key: usrcat | usr
+  similarity_conversion: inv1_plus  # Distance-to-similarity: inv1_plus | normalized
+  conformers_per_mol: 3             # 3D conformers generated per molecule
+  max_workers: 4                    # Parallel workers for conformer/descriptor steps
 
 # External Tools
 # --------------

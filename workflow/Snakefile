@@ -141,8 +141,9 @@ include: "rules/rescoring.smk"
 # Results computation and visualization
 include: "rules/results.smk"
 
-# Ligand-based methods (optional)
-# include: "workflow/rules/ligand_based.smk"
+# Ligand-based methods (optional — enabled via config: ligand_based.enabled: true)
+if config.get("ligand_based", {}).get("enabled", False):
+    include: "rules/ligand_based.smk"
 
 
 # =============================================================================
