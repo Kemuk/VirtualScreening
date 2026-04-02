@@ -13,10 +13,17 @@ results to a separate output manifest with three new columns:
 
 Usage
 -----
-All targets (production / local):
+All targets, sequential (default):
     python -m workflow.slurm.workers.ligand_based \\
         --manifest  data/master/manifest.parquet \\
         --output    data/master/manifest_ligand_based.parquet \\
+        --config    config/config.yaml
+
+All targets, parallel across targets (inner max_workers forced to 1):
+    python -m workflow.slurm.workers.ligand_based \\
+        --manifest  data/master/manifest.parquet \\
+        --output    data/master/manifest_ligand_based.parquet \\
+        --n-jobs    8 \\
         --config    config/config.yaml
 
 Single target (devel / quick test):
@@ -33,11 +40,20 @@ from pathlib import Path
 import pandas as pd
 import yaml
 from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 
 from workflow.ligand_based.registry import get_method
 
 
-def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None):
+def _run_target(args):
+    """Top-level function for process_map (must be picklable at module level)."""
+    protein_id, smiles, template, target_dir, method_name, cfg = args
+    method = get_method(method_name)
+    scores = method.run_target(smiles, template, target_dir, cfg)
+    return protein_id, scores
+
+
+def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None, n_jobs=1):
     """
     Score all ligands in the manifest and write to output_path.
 
@@ -48,6 +64,8 @@ def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None):
         method_name:   Registry key for the LigandBasedMethod to use
         cfg:           ligand_based config dict (from config.yaml)
         targets:       Optional list of protein_id values to restrict processing
+        n_jobs:        Targets to process in parallel. When >1, inner max_workers
+                       is forced to 1 to avoid nested pool explosion.
     """
     df = pd.read_parquet(manifest_path)
 
@@ -55,28 +73,36 @@ def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None):
         df = df[df["protein_id"].isin(targets)].copy()
 
     # Initialise output columns
-    df["ligand_based_score"] = float("nan")
+    df["ligand_based_score"]  = float("nan")
     df["ligand_based_status"] = False
     df["ligand_based_method"] = method_name
 
-    method = get_method(method_name)
+    # When parallelising across targets, disable inner per-molecule pools to
+    # avoid spawning n_jobs * max_workers processes simultaneously.
+    inner_cfg = {**cfg, "max_workers": 1} if n_jobs > 1 else cfg
 
-    for protein_id, group in tqdm(df.groupby("protein_id"), desc="targets"):
+    tasks = []
+    for protein_id, group in df.groupby("protein_id"):
         target_dir = Path(work_dir) / protein_id
-
-        smiles = group["smiles_canonical"].tolist()
-        actives = group.loc[group["is_active"], "smiles_canonical"]
+        target_dir.mkdir(parents=True, exist_ok=True)
+        smiles   = group["smiles_canonical"].tolist()
+        actives  = group.loc[group["is_active"], "smiles_canonical"]
         template = actives.iloc[0] if len(actives) else smiles[0]
+        tasks.append((protein_id, smiles, template, target_dir, method_name, inner_cfg))
 
-        scores = method.run_target(smiles, template, target_dir, cfg)
+    if n_jobs > 1:
+        results = process_map(_run_target, tasks, max_workers=n_jobs, desc="targets", chunksize=1)
+    else:
+        results = [_run_target(t) for t in tqdm(tasks, desc="targets")]
 
-        df.loc[group.index, "ligand_based_score"] = scores.values
+    for protein_id, scores in results:
+        group = df[df["protein_id"] == protein_id]
+        df.loc[group.index, "ligand_based_score"]  = scores.values
         df.loc[group.index, "ligand_based_status"] = True
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output_path, index=False)
-    n_scored = int(df["ligand_based_status"].sum())
-    print(f"Written: {output_path}  ({n_scored} / {len(df)} scored)")
+    print(f"Written: {output_path}  ({int(df['ligand_based_status'].sum())} / {len(df)} scored)")
 
 
 def main():
@@ -97,6 +123,9 @@ def main():
                         help="Path to config.yaml (default: config/config.yaml)")
     parser.add_argument("--target", dest="targets", action="append",
                         help="Restrict to one or more targets (repeatable; omit for all)")
+    parser.add_argument("--n-jobs", type=int, default=1,
+                        help="Targets to process in parallel (default: 1). "
+                             "When >1, inner max_workers is forced to 1.")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config)).get("ligand_based", {})
@@ -108,6 +137,7 @@ def main():
         method_name=args.method,
         cfg=cfg,
         targets=args.targets,
+        n_jobs=args.n_jobs,
     )
 
 
