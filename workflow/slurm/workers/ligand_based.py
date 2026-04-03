@@ -32,6 +32,13 @@ Single target (devel / quick test):
         --output    /tmp/manifest_lb_ADRB2.parquet \\
         --target    ADRB2 \\
         --config    config/config.yaml
+
+First 100 ligands per target (fast end-to-end test):
+    python -m workflow.slurm.workers.ligand_based \\
+        --manifest       data/master/manifest.parquet \\
+        --output         /tmp/manifest_lb_test100.parquet \\
+        --max-per-target 100 \\
+        --config         config/config.yaml
 """
 
 import argparse
@@ -53,24 +60,29 @@ def _run_target(args):
     return protein_id, scores
 
 
-def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None, n_jobs=1):
+def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None, n_jobs=1,
+        max_per_target=None):
     """
     Score all ligands in the manifest and write to output_path.
 
     Args:
-        manifest_path: Path to input manifest.parquet
-        output_path:   Path to write manifest_ligand_based.parquet
-        work_dir:      Root for per-target intermediates (conformers, vectors)
-        method_name:   Registry key for the LigandBasedMethod to use
-        cfg:           ligand_based config dict (from config.yaml)
-        targets:       Optional list of protein_id values to restrict processing
-        n_jobs:        Targets to process in parallel. When >1, inner max_workers
-                       is forced to 1 to avoid nested pool explosion.
+        manifest_path:  Path to input manifest.parquet
+        output_path:    Path to write manifest_ligand_based.parquet
+        work_dir:       Root for per-target intermediates (conformers, vectors)
+        method_name:    Registry key for the LigandBasedMethod to use
+        cfg:            ligand_based config dict (from config.yaml)
+        targets:        Optional list of protein_id values to restrict processing
+        n_jobs:         Targets to process in parallel. When >1, inner max_workers
+                        is forced to 1 to avoid nested pool explosion.
+        max_per_target: If set, keep only the first N rows per target (for testing).
     """
     df = pd.read_parquet(manifest_path)
 
     if targets:
         df = df[df["protein_id"].isin(targets)].copy()
+
+    if max_per_target is not None:
+        df = df.groupby("protein_id").head(max_per_target).copy()
 
     # Initialise output columns
     df["ligand_based_score"]  = float("nan")
@@ -126,6 +138,8 @@ def main():
     parser.add_argument("--n-jobs", type=int, default=1,
                         help="Targets to process in parallel (default: 1). "
                              "When >1, inner max_workers is forced to 1.")
+    parser.add_argument("--max-per-target", type=int, default=None,
+                        help="Keep only the first N ligands per target (for quick testing).")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config)).get("ligand_based", {})
@@ -138,6 +152,7 @@ def main():
         cfg=cfg,
         targets=args.targets,
         n_jobs=args.n_jobs,
+        max_per_target=args.max_per_target,
     )
 
 
