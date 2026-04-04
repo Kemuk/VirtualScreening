@@ -1,11 +1,14 @@
-from workflow.ligand_based.methods.usrcat import USRCATMethod
+from workflow.ligand_based.methods.fingerprint import ECFPMethod, MACCSMethod
+from workflow.ligand_based.methods.usrcat import USRMethod, USRCATMethod
 
 # Map config method name → LigandBasedMethod class.
 # To add a new method: create workflow/ligand_based/methods/<name>.py,
 # implement LigandBasedMethod, then add an entry here.
 METHODS = {
+    "ecfp4_tanimoto": ECFPMethod,
+    "maccs_tanimoto": MACCSMethod,
     "usrcat": USRCATMethod,
-    "usr": USRCATMethod,  # same class; cfg controls which descriptor file is loaded
+    "usr": USRMethod,
 }
 
 

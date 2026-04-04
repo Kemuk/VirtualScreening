@@ -22,14 +22,14 @@ from workflow.slurm.stage_config import get_stage_config, list_stages
 
 def load_results(results_dir: Path, stage: str) -> pd.DataFrame:
     """
-    Load and concatenate all result CSV files for a stage.
+    Load and concatenate all result parquet files for a stage.
     Args:
         results_dir: Directory containing result files
         stage: Stage name
     Returns:
         DataFrame with all results
     """
-    pattern = f"{stage}_*.csv"
+    pattern = f"{stage}_*.parquet"
     result_files = sorted(results_dir.glob(pattern))
     if not result_files:
         print(f"No result files found matching: {results_dir / pattern}")
@@ -39,7 +39,7 @@ def load_results(results_dir: Path, stage: str) -> pd.DataFrame:
     dfs = []
     for f in result_files:
         try:
-            df = pd.read_csv(f)
+            df = pd.read_parquet(f)
             dfs.append(df)
         except Exception as e:
             print(f"WARNING: Failed to read {f}: {e}")

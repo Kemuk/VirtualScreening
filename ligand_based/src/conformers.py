@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib
 import pandas as pd
 import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import os
 
@@ -24,10 +24,12 @@ def _worker_generate(args):
         params = AllChem.ETKDGv3()
         params.randomSeed = int(seed + idx)
         params.pruneRmsThresh = 0.5
+        # EmbedMultipleConfs releases the GIL — threads give true parallelism
         cids = AllChem.EmbedMultipleConfs(m, numConfs=int(n_conf), params=params)
         if len(cids) == 0:
             return {"smiles": smiles, "n_confs": 0, "file": None, "error": "no_confs"}
-        AllChem.MMFFOptimizeMoleculeConfs(m, numThreads=1)
+        # numThreads=0 lets RDKit use all available cores per molecule
+        AllChem.MMFFOptimizeMoleculeConfs(m, numThreads=0)
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         fname = out_dir / (f"{_safe_name(smiles)}.sdf")
@@ -55,16 +57,17 @@ def generate_conformers_for_target(processed_root, target, cfg):
     max_workers = int(cfg.get("max_workers", 1))
     tqdm_disable = os.getenv("TQDM_DISABLE", "0") == "1"
     tqdm_pos = int(cfg.get("tqdm_position", 0))
+    tqdm_leave = cfg.get("tqdm_leave", True)
 
     tasks = [(smi, str(conf_dir), n_conf, seed, i) for i, smi in enumerate(smiles_list)]
     records = []
-    with ProcessPoolExecutor(max_workers=max_workers) as exe:
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
         futures = {exe.submit(_worker_generate, t): t[0] for t in tasks}
         for fut in tqdm(as_completed(futures),
                         total=len(futures),
                         desc=f"conformers:{target}",
                         position=tqdm_pos,
-                        leave=True,
+                        leave=tqdm_leave,
                         disable=tqdm_disable):
             res = fut.result()
             records.append(res)

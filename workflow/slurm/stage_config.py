@@ -138,6 +138,58 @@ STAGES = {
         },
         'chunk_size': 500,
     },
+    'ligand_features': {
+        'status_column': 'ligand_features_status',
+        'depends_on': None,
+        'score_column': None,
+        'worker_module': 'workflow.slurm.workers.ligand_features',
+        'description': 'Per-ligand feature generation (fingerprints / conformers)',
+        'slurm_template': 'ligand_features.slurm',
+        'cluster': 'arc',
+        'resources': {
+            'production': {
+                'partition': 'short',
+                'time': '02:00:00',
+                'mem': '8G',
+                'cpus': 4,
+                'max_concurrent': 50,
+            },
+            'devel': {
+                'partition': 'devel',
+                'time': '00:10:00',
+                'mem': '4G',
+                'cpus': 2,
+                'max_concurrent': 5,
+            },
+        },
+        'chunk_size': 1000,
+    },
+    'ligand_score': {
+        'status_column': 'ligand_score_status',
+        'depends_on': 'ligand_features_status',
+        'score_column': 'ligand_based_score',
+        'worker_module': 'workflow.slurm.workers.ligand_score',
+        'description': 'Per-target template similarity scoring',
+        'slurm_template': 'ligand_score.slurm',
+        'cluster': 'arc',
+        'resources': {
+            'production': {
+                'partition': 'short',
+                'time': '00:30:00',
+                'mem': '4G',
+                'cpus': 1,
+                'max_concurrent': 15,
+            },
+            'devel': {
+                'partition': 'devel',
+                'time': '00:05:00',
+                'mem': '2G',
+                'cpus': 1,
+                'max_concurrent': 5,
+            },
+        },
+        'chunk_size': 1000,
+    },
 }
 
 

@@ -112,16 +112,30 @@ results:
 
 # Ligand-Based Screening (optional step, SMILES-only, no docking required)
 # -------------------------------------------------------------------------
-# Enable with: ligand_based.enabled: true
-# Run all targets:  python -m workflow.slurm.workers.ligand_based --manifest ... --output ...
-# Run single target: add --target ADRB2 (useful for devel/testing)
-# Via SLURM:        sbatch workflow/slurm/ligand_based.slurm
+# Methods: ecfp4_tanimoto | maccs_tanimoto | usrcat | usr
+#
+# Standalone (no SLURM):
+#   python -m workflow.slurm.workers.ligand_based \
+#       --manifest data/master/manifest.parquet \
+#       --output   data/master/manifest_ligand_based.parquet \
+#       --method   ecfp4_tanimoto
+#
+# Two-stage SLURM pipeline:
+#   Stage 1 — python -m workflow.slurm.prepare_stage --stage ligand_features
+#             sbatch --array=0-N workflow/slurm/ligand_features.slurm
+#             python -m workflow.slurm.workers.ligand_features --merge ...
+#   Stage 2 — python -m workflow.slurm.prepare_stage --stage ligand_score
+#             python -m workflow.slurm.workers.ligand_score --prepare ...
+#             sbatch --array=0-N workflow/slurm/ligand_score.slurm
+#             python -m workflow.slurm.workers.ligand_score --merge ...
 ligand_based:
   enabled: false                    # Set true to activate the Snakemake rule
-  method: usrcat                    # Method registry key: usrcat | usr
-  similarity_conversion: inv1_plus  # Distance-to-similarity: inv1_plus | normalized
-  conformers_per_mol: 3             # 3D conformers generated per molecule
+  method: ecfp4_tanimoto            # ecfp4_tanimoto | maccs_tanimoto | usrcat | usr
+  ecfp_radius: 2                    # Morgan radius (ecfp4_tanimoto)
+  ecfp_nbits: 2048                  # Fingerprint bit length (ecfp4_tanimoto)
+  conformers_per_mol: 3             # 3D conformers per molecule (usrcat / usr)
   max_workers: 4                    # Parallel workers for conformer/descriptor steps
+  templates: {}                     # Optional: {protein_id: smiles} overrides for Stage 2
 
 # External Tools
 # --------------

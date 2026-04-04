@@ -1,29 +1,21 @@
 """
 ligand_based.py
 
-Worker for ligand-based virtual screening (SMILES-only, no docking required).
+Standalone CLI for ligand-based virtual screening (no SLURM required).
 
-Reads the manifest, scores every ligand per target against a template molecule
-using the configured method (default: USRCAT shape similarity), and writes the
-results to a separate output manifest with three new columns:
+Orchestrates both stages in sequence:
+  Stage 1 — generate per-ligand feature vectors
+  Stage 2 — score each ligand against its target's template molecule
 
-  ligand_based_score   float32  similarity to template (higher = more similar)
-  ligand_based_status  bool     True when scoring succeeded
-  ligand_based_method  str      name of the method used
+Writes the final merged parquet with ligand_based_score, template_smiles,
+template_source, and ligand_based_method columns appended to the manifest.
 
 Usage
 -----
-All targets, sequential (default):
+All targets:
     python -m workflow.slurm.workers.ligand_based \\
         --manifest  data/master/manifest.parquet \\
         --output    data/master/manifest_ligand_based.parquet \\
-        --config    config/config.yaml
-
-All targets, parallel across targets (inner max_workers forced to 1):
-    python -m workflow.slurm.workers.ligand_based \\
-        --manifest  data/master/manifest.parquet \\
-        --output    data/master/manifest_ligand_based.parquet \\
-        --n-jobs    8 \\
         --config    config/config.yaml
 
 Single target (devel / quick test):
@@ -33,7 +25,7 @@ Single target (devel / quick test):
         --target    ADRB2 \\
         --config    config/config.yaml
 
-First 100 ligands per target (fast end-to-end test):
+First 100 ligands per target:
     python -m workflow.slurm.workers.ligand_based \\
         --manifest       data/master/manifest.parquet \\
         --output         /tmp/manifest_lb_test100.parquet \\
@@ -44,24 +36,21 @@ First 100 ligands per target (fast end-to-end test):
 import argparse
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 import yaml
-from tqdm import tqdm
-from tqdm.contrib.concurrent import process_map
 
 from workflow.ligand_based.registry import get_method
 
 
-def _run_target(args):
-    """Top-level function for process_map (must be picklable at module level)."""
-    protein_id, smiles, template, target_dir, method_name, cfg = args
-    method = get_method(method_name)
-    scores = method.run_target(smiles, template, target_dir, cfg)
-    return protein_id, scores
-
-
-def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None, n_jobs=1,
-        max_per_target=None):
+def run(
+    manifest_path: Path,
+    output_path: Path,
+    work_dir: Path,
+    method_name: str,
+    cfg: dict,
+    targets: list = None,
+    max_per_target: int = None,
+):
     """
     Score all ligands in the manifest and write to output_path.
 
@@ -72,54 +61,87 @@ def run(manifest_path, output_path, work_dir, method_name, cfg, targets=None, n_
         method_name:    Registry key for the LigandBasedMethod to use
         cfg:            ligand_based config dict (from config.yaml)
         targets:        Optional list of protein_id values to restrict processing
-        n_jobs:         Targets to process in parallel. When >1, inner max_workers
-                        is forced to 1 to avoid nested pool explosion.
-        max_per_target: If set, keep only the first N rows per target (for testing).
+        max_per_target: If set, keep only the first N rows per target (for testing)
     """
-    df = pd.read_parquet(manifest_path)
+    method = get_method(method_name)
+
+    df = pl.read_parquet(manifest_path)
 
     if targets:
-        df = df[df["protein_id"].isin(targets)].copy()
+        df = df.filter(pl.col("protein_id").is_in(targets))
 
     if max_per_target is not None:
-        df = df.groupby("protein_id").head(max_per_target).copy()
+        df = df.with_row_index("__row").group_by("protein_id").head(max_per_target).sort("__row").drop("__row")
 
-    # Initialise output columns
-    df["ligand_based_score"]  = float("nan")
-    df["ligand_based_status"] = False
-    df["ligand_based_method"] = method_name
+    # ── Stage 1: generate feature vectors ──────────────────────────────────
+    print(f"Stage 1: generating {method_name} features for {len(df):,} ligands...")
+    feature_vecs = method.generate_features_batch(df, work_dir, cfg)
+    df = df.with_columns(feature_vecs.alias("feature_vec"))
 
-    # When parallelising across targets, disable inner per-molecule pools to
-    # avoid spawning n_jobs * max_workers processes simultaneously.
-    inner_cfg = {**cfg, "max_workers": 1} if n_jobs > 1 else cfg
+    n_ok = df["feature_vec"].is_not_null().sum()
+    print(f"  {n_ok:,}/{len(df):,} features generated")
 
-    tasks = []
-    for protein_id, group in df.groupby("protein_id"):
-        target_dir = Path(work_dir) / protein_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        smiles   = group["smiles_canonical"].tolist()
-        actives  = group.loc[group["is_active"], "smiles_canonical"]
-        template = actives.iloc[0] if len(actives) else smiles[0]
-        tasks.append((protein_id, smiles, template, target_dir, method_name, inner_cfg))
+    # ── Determine templates (first active; fall back to first ligand) ───────
+    template_df = (
+        df.filter(pl.col("feature_vec").is_not_null())
+        .sort(["is_active", "ligand_id"], descending=[True, False])
+        .group_by("protein_id")
+        .first()
+        .select(["protein_id", "smiles_canonical", "is_active"])
+        .rename({"smiles_canonical": "template_smiles"})
+        .with_columns(
+            pl.when(pl.col("is_active"))
+            .then(pl.lit("first_active"))
+            .otherwise(pl.lit("first_ligand"))
+            .alias("template_source")
+        )
+        .drop("is_active")
+    )
+    df = df.join(template_df, on="protein_id", how="left")
 
-    if n_jobs > 1:
-        results = process_map(_run_target, tasks, max_workers=n_jobs, desc="targets", chunksize=1)
-    else:
-        results = [_run_target(t) for t in tqdm(tasks, desc="targets")]
+    # ── Stage 2: score ligands against templates ────────────────────────────
+    print("Stage 2: scoring ligands...")
+    tmpl_features = (
+        df.filter(pl.col("feature_vec").is_not_null())
+        .select(["smiles_canonical", "feature_vec"])
+        .unique("smiles_canonical")
+        .rename({"smiles_canonical": "template_smiles", "feature_vec": "template_vec"})
+    )
+    df = df.join(tmpl_features, on="template_smiles", how="left")
 
-    for protein_id, scores in results:
-        group = df[df["protein_id"] == protein_id]
-        df.loc[group.index, "ligand_based_score"]  = scores.values
-        df.loc[group.index, "ligand_based_status"] = True
+    valid_mask = pl.col("feature_vec").is_not_null() & pl.col("template_vec").is_not_null()
+    valid_df   = df.filter(valid_mask)
+    invalid_df = df.filter(~valid_mask)
+
+    if len(valid_df) > 0:
+        sim_vals = method.compute_similarity(
+            valid_df["feature_vec"].to_numpy(),
+            valid_df["template_vec"].to_numpy(),
+            cfg,
+        )
+        valid_df = valid_df.with_columns(
+            pl.Series("ligand_based_score", sim_vals, dtype=pl.Float32)
+        )
+
+    invalid_df = invalid_df.with_columns(
+        pl.lit(None, dtype=pl.Float32).alias("ligand_based_score")
+    )
+    df = pl.concat([valid_df, invalid_df])
+
+    result = (
+        df.drop(["feature_vec", "template_vec"])
+        .with_columns(pl.lit(method_name).alias("ligand_based_method"))
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(output_path, index=False)
-    print(f"Written: {output_path}  ({int(df['ligand_based_status'].sum())} / {len(df)} scored)")
+    result.write_parquet(output_path)
+    n_scored = result["ligand_based_score"].is_not_null().sum()
+    print(f"Written: {output_path}  ({n_scored:,}/{len(result):,} scored)")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Ligand-based screening worker — scores manifest ligands by shape similarity",
+        description="Ligand-based screening — standalone CLI (no SLURM)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -135,11 +157,8 @@ def main():
                         help="Path to config.yaml (default: config/config.yaml)")
     parser.add_argument("--target", dest="targets", action="append",
                         help="Restrict to one or more targets (repeatable; omit for all)")
-    parser.add_argument("--n-jobs", type=int, default=1,
-                        help="Targets to process in parallel (default: 1). "
-                             "When >1, inner max_workers is forced to 1.")
     parser.add_argument("--max-per-target", type=int, default=None,
-                        help="Keep only the first N ligands per target (for quick testing).")
+                        help="Keep only the first N ligands per target (for quick testing)")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config)).get("ligand_based", {})
@@ -151,7 +170,6 @@ def main():
         method_name=args.method,
         cfg=cfg,
         targets=args.targets,
-        n_jobs=args.n_jobs,
         max_per_target=args.max_per_target,
     )
 

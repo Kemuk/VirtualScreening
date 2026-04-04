@@ -76,6 +76,17 @@ STAGE_CONFIG = {
         'filter_column': None,
         'group_by': 'protein_id',  # One task per target
     },
+    'ligand_features': {
+        'status_column': 'ligand_features_status',
+        'depends_on': None,
+        'filter_column': None,
+    },
+    'ligand_score': {
+        'status_column': 'ligand_score_status',
+        'depends_on': 'ligand_features_status',
+        'filter_column': None,
+        'score_column': 'ligand_based_score',
+    },
 }
 
 
@@ -144,8 +155,11 @@ def query_pending(
     df = load_manifest(manifest_path)
 
     # Filter by dependency (previous stage must be complete)
-    if config['depends_on']:
-        df = df[df[config['depends_on']] == True]
+    depends_on = config['depends_on']
+    if depends_on:
+        if depends_on in df.columns:
+            df = df[df[depends_on] == True]
+        # else: dependency column absent → treat all rows as eligible
 
     status_column = config.get('status_column')
     check_file = config.get('check_file_column')
@@ -156,10 +170,15 @@ def query_pending(
         return not Path(path_str).exists()
 
     if status_column and check_file:
-        pending_mask = (df[status_column] == False) | df[check_file].apply(file_missing)
+        if status_column in df.columns:
+            pending_mask = (df[status_column] == False) | df[check_file].apply(file_missing)
+        else:
+            pending_mask = df[check_file].apply(file_missing)
         df = df[pending_mask]
     elif status_column:
-        df = df[df[status_column] == False]
+        if status_column in df.columns:
+            df = df[df[status_column] == False]
+        # else: column absent → all rows are pending
     elif check_file:
         df = df[df[check_file].apply(file_missing)]
 

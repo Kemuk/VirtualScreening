@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import os
 
@@ -45,15 +45,16 @@ def compute_descr_for_target(processed_root, target, cfg):
     max_workers = int(cfg.get("max_workers", 1))
     tqdm_disable = os.getenv("TQDM_DISABLE", "0") == "1"
     tqdm_pos = int(cfg.get("tqdm_position", 0))
+    tqdm_leave = cfg.get("tqdm_leave", True)
 
     results = []
-    with ProcessPoolExecutor(max_workers=max_workers) as exe:
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
         futures = {exe.submit(_worker_compute, str(p)): str(p) for p in sdf_files}
         for fut in tqdm(as_completed(futures),
                         total=len(futures),
                         desc=f"descriptors:{target}",
                         position=tqdm_pos,
-                        leave=True,
+                        leave=tqdm_leave,
                         disable=tqdm_disable):
             res = fut.result()
             results.append(res)
