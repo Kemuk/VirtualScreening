@@ -124,6 +124,8 @@ def update_manifest(
             completed_keys = set(successful['compound_key'])
             # Update status column
             if status_col:
+                if status_col not in manifest.columns:
+                    manifest[status_col] = False
                 mask = manifest['compound_key'].isin(completed_keys)
                 manifest.loc[mask, status_col] = True
                 print(f"  Updated {status_col}: {mask.sum():,} rows")

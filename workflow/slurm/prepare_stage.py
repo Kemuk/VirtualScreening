@@ -32,11 +32,11 @@ def filter_pending(
     # Lazy scan
     lf = pl.scan_parquet(manifest_path)
 
-    original_count = lf.select(pl.count()).collect().item()
+    original_count = lf.select(pl.len()).collect().item()
 
     # Dependency filter (guard: column may not exist yet for new stages)
     depends_on = config.get("depends_on")
-    schema = lf.schema
+    schema = lf.collect_schema()
     if depends_on:
         if depends_on in schema:
             lf = lf.filter(pl.col(depends_on))
@@ -62,11 +62,11 @@ def filter_pending(
     # Build pending condition (guard: status column may not exist yet)
     if status_col and check_file:
         if status_col in schema:
-            pending_expr = (~pl.col(status_col)) | file_missing_expr
+            pending_expr = (~pl.col(status_col).fill_null(False)) | file_missing_expr
         else:
             pending_expr = file_missing_expr
     elif status_col:
-        pending_expr = ~pl.col(status_col) if status_col in schema else pl.lit(True)
+        pending_expr = (~pl.col(status_col).fill_null(False)) if status_col in schema else pl.lit(True)
     elif check_file:
         pending_expr = file_missing_expr
     else:
