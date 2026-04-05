@@ -67,4 +67,21 @@ echo "=========================================="
     --manifest "${PROJECT_DIR}/data/master/manifest.parquet" \
     --results-dir "${PROJECT_DIR}/data/master/results"
 
+# Post-processing: run --merge step for ligand-based stages
+case "${STAGE}" in
+    ligand_features)
+        echo "Running ligand_features --merge to create features.parquet..."
+        "${PYTHON_BIN}" -m workflow.slurm.workers.ligand_features --merge \
+            --results-dir "${PROJECT_DIR}/data/master/results" \
+            --cache-dir   "${PROJECT_DIR}/data/ligand_based/cache"
+        ;;
+    ligand_score)
+        echo "Running ligand_score --merge to create manifest_ligand_based.parquet..."
+        "${PYTHON_BIN}" -m workflow.slurm.workers.ligand_score --merge \
+            --results-dir "${PROJECT_DIR}/data/master/results" \
+            --manifest    "${PROJECT_DIR}/data/master/manifest.parquet" \
+            --output      "${PROJECT_DIR}/data/master/manifest_ligand_based.parquet"
+        ;;
+esac
+
 echo "Update manifest for ${STAGE} complete"

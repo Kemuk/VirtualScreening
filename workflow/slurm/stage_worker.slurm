@@ -85,6 +85,10 @@ case "${STAGE}" in
         # Ligand preparation has minimal requirements
         :
         ;;
+    ligand_features|ligand_score)
+        # Ligand-based screening — no special modules needed
+        :
+        ;;
     *)
         echo "WARNING: Unknown stage '${STAGE}', proceeding without stage-specific modules"
         ;;

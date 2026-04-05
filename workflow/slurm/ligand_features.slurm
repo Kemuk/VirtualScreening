@@ -27,7 +27,7 @@ NUM_CHUNKS=${NUM_CHUNKS:-${SLURM_ARRAY_TASK_COUNT:-500}}
 METHOD="${METHOD:-usrcat}"
 PENDING_FILE="${PROJECT_DIR}/data/master/pending/ligand_features.parquet"
 CONFIG_FILE="${PROJECT_DIR}/config/config.yaml"
-RESULTS_DIR="${PROJECT_DIR}/data/master/results/ligand_features"
+RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 CACHE_DIR="${PROJECT_DIR}/data/ligand_based/cache"
 
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"

@@ -50,12 +50,16 @@ STAGE_CLUSTER[ligands]="arc"
 STAGE_CLUSTER[docking]="htc"
 STAGE_CLUSTER[conversion]="arc"
 STAGE_CLUSTER[aev_infer]="htc"
+STAGE_CLUSTER[ligand_features]="arc"
+STAGE_CLUSTER[ligand_score]="arc"
 
 declare -A STAGE_TIME
 STAGE_TIME[ligands]="01:00:00"
 STAGE_TIME[docking]="02:00:00"
 STAGE_TIME[conversion]="01:00:00"
 STAGE_TIME[aev_infer]="02:00:00"
+STAGE_TIME[ligand_features]="02:00:00"
+STAGE_TIME[ligand_score]="00:30:00"
 
 # Resolve conda environment for PYTHON_BIN
 if [[ -n "${DATA:-}" ]]; then
@@ -191,6 +195,14 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         echo "Prepared $STAGE (--prepare-only, not submitting)"
         echo ""
         continue
+    fi
+
+    # ligand_score requires template columns added synchronously before the array
+    if [ "$STAGE" = "ligand_score" ]; then
+        echo "Adding template columns to ligand_score pending parquet (--prepare)..."
+        "${PYTHON_BIN}" -m workflow.slurm.workers.ligand_score --prepare \
+            --pending  "${PROJECT_DIR}/data/master/pending/ligand_score.parquet" \
+            --manifest "${PROJECT_DIR}/data/master/manifest.parquet"
     fi
 
     # Build sbatch command for array job

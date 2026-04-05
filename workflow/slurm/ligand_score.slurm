@@ -34,7 +34,7 @@ cd "${PROJECT_DIR}"
 NUM_CHUNKS=${NUM_CHUNKS:-${SLURM_ARRAY_TASK_COUNT:-500}}
 PENDING_FILE="${PROJECT_DIR}/data/master/pending/ligand_score.parquet"
 CONFIG_FILE="${PROJECT_DIR}/config/config.yaml"
-RESULTS_DIR="${PROJECT_DIR}/data/master/results/ligand_score"
+RESULTS_DIR="${PROJECT_DIR}/data/master/results"
 CACHE_DIR="${PROJECT_DIR}/data/ligand_based/cache"
 
 mkdir -p "${PROJECT_DIR}/data/logs/slurm"
