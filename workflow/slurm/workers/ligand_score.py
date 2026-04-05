@@ -97,9 +97,45 @@ def process_slice(
     if df.is_empty():
         return 0
 
-    print(results_dir)
-    print(cache_dir)
-    features = pl.read_parquet(cache_dir / "features.parquet")
+    # Load Stage-1 feature files directly — no pre-merged features.parquet required
+    feature_files = sorted(results_dir.glob("ligand_features_?????.parquet"))
+    if not feature_files:
+        raise FileNotFoundError(
+            f"No ligand_features result files found in {results_dir}. "
+            "Run Stage 1 (ligand_features) before Stage 2 (ligand_score)."
+        )
+    features = (
+        pl.concat([pl.read_parquet(f) for f in feature_files])
+        .filter(pl.col("success").cast(pl.Boolean))
+    )
+
+    # Derive template per protein_id unless --prepare already added template_smiles
+    if "template_smiles" not in df.columns:
+        explicit = cfg.get("templates", {}) or {}
+        templates = (
+            features
+            .filter(pl.col("feature_vec").is_not_null())
+            .sort(["is_active", "compound_key"], descending=[True, False])
+            .group_by("protein_id")
+            .first()
+            .select(["protein_id", "smiles_canonical", "is_active"])
+            .rename({"smiles_canonical": "template_smiles"})
+            .with_columns(
+                pl.when(pl.col("is_active"))
+                .then(pl.lit("first_active"))
+                .otherwise(pl.lit("first_ligand"))
+                .alias("template_source")
+            )
+            .drop("is_active")
+        )
+        if explicit:
+            override_df = pl.DataFrame({
+                "protein_id":      list(explicit.keys()),
+                "template_smiles": list(explicit.values()),
+                "template_source": ["config"] * len(explicit),
+            })
+            templates = templates.update(override_df, on="protein_id")
+        df = df.join(templates, on="protein_id", how="left")
 
     # Join ligand feature vectors
     df = df.join(features.select(["compound_key", "feature_vec"]), on="compound_key", how="left")
@@ -190,16 +226,16 @@ def main():
 
     parser.add_argument("--pending", type=Path,
                         help="Path to pending parquet")
-    parser.add_argument("--task-id", type=int,
-                        help="SLURM_ARRAY_TASK_ID (worker mode)")
-    parser.add_argument("--num-chunks", type=int,
-                        help="Total number of array tasks (worker mode)")
+    parser.add_argument("--task-id", type=int, default=0,
+                        help="SLURM_ARRAY_TASK_ID (worker mode, default: 0)")
+    parser.add_argument("--num-chunks", type=int, default=1,
+                        help="Total number of array tasks (worker mode, default: 1 = process all)")
     parser.add_argument("--config", type=Path, default=Path("config/config.yaml"),
                         help="Path to config.yaml")
     parser.add_argument("--results-dir", type=Path,
                         help="Directory for per-task result parquets")
     parser.add_argument("--cache-dir", type=Path,
-                        help="Directory containing features.parquet")
+                        help="Directory for optional cache files (accepted but not required)")
     parser.add_argument("--manifest", type=Path,
                         help="Path to manifest.parquet (prepare / merge mode)")
     parser.add_argument("--output", type=Path,
@@ -226,7 +262,7 @@ def main():
         return
 
     # Worker mode
-    for flag in ("pending", "task_id", "num_chunks", "config", "results_dir", "cache_dir"):
+    for flag in ("pending", "results_dir"):
         if getattr(args, flag) is None:
             parser.error(f"--{flag.replace('_', '-')} is required in worker mode")
 

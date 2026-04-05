@@ -197,14 +197,6 @@ for STAGE in "${STAGE_ARRAY[@]}"; do
         continue
     fi
 
-    # ligand_score requires template columns added synchronously before the array
-    if [ "$STAGE" = "ligand_score" ]; then
-        echo "Adding template columns to ligand_score pending parquet (--prepare)..."
-        "${PYTHON_BIN}" -m workflow.slurm.workers.ligand_score --prepare \
-            --pending  "${PROJECT_DIR}/data/master/pending/ligand_score.parquet" \
-            --manifest "${PROJECT_DIR}/data/master/manifest.parquet"
-    fi
-
     # Build sbatch command for array job
     ARRAY_END=$((ACTUAL_CHUNKS - 1))
     LOG_DIR="${PROJECT_DIR}/data/logs/slurm"

@@ -99,10 +99,10 @@ def main():
                         help="Run merge mode: concat per-task parquets into features.parquet")
     parser.add_argument("--pending", type=Path,
                         help="Path to pending parquet (worker mode)")
-    parser.add_argument("--task-id", type=int,
-                        help="SLURM_ARRAY_TASK_ID (worker mode)")
-    parser.add_argument("--num-chunks", type=int,
-                        help="Total number of array tasks (worker mode)")
+    parser.add_argument("--task-id", type=int, default=0,
+                        help="SLURM_ARRAY_TASK_ID (worker mode, default: 0)")
+    parser.add_argument("--num-chunks", type=int, default=1,
+                        help="Total number of array tasks (worker mode, default: 1 = process all)")
     parser.add_argument("--config", type=Path, default=Path("config/config.yaml"),
                         help="Path to config.yaml")
     parser.add_argument("--results-dir", type=Path, required=True,
