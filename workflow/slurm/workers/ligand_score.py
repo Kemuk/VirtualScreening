@@ -163,6 +163,10 @@ def process_slice(
         valid_df = valid_df.with_columns(
             pl.Series("ligand_based_score", sim_vals, dtype=pl.Float32)
         )
+    else:
+        valid_df = valid_df.with_columns(
+            pl.lit(None, dtype=pl.Float32).alias("ligand_based_score")
+        )
 
     invalid_df = invalid_df.with_columns(
         pl.lit(None, dtype=pl.Float32).alias("ligand_based_score")
