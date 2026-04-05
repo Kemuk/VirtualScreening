@@ -45,13 +45,13 @@ def add_templates(pending_path: Path, manifest_path: Path, explicit_templates: d
     """Add template_smiles and template_source columns to the pending parquet."""
     manifest = pl.read_parquet(
         manifest_path,
-        columns=["ligand_id", "protein_id", "smiles_canonical", "is_active"],
+        columns=["compound_key", "protein_id", "smiles_canonical", "is_active"],
     )
 
-    # Sort: actives first, then by ligand_id — group_by().first() picks the best template
+    # Sort: actives first, then by compound_key — group_by().first() picks the best template
     template_df = (
         manifest
-        .sort(["is_active", "ligand_id"], descending=[True, False])
+        .sort(["is_active", "compound_key"], descending=[True, False])
         .group_by("protein_id")
         .first()
         .select(["protein_id", "smiles_canonical", "is_active"])
@@ -97,10 +97,12 @@ def process_slice(
     if df.is_empty():
         return 0
 
+    print(results_dir)
+    print(cache_dir)
     features = pl.read_parquet(cache_dir / "features.parquet")
 
     # Join ligand feature vectors
-    df = df.join(features.select(["ligand_id", "feature_vec"]), on="ligand_id", how="left")
+    df = df.join(features.select(["compound_key", "feature_vec"]), on="compound_key", how="left")
 
     # Join template feature vectors via smiles_canonical → template_vec
     tmpl_features = (
@@ -160,12 +162,12 @@ def merge(results_dir: Path, manifest_path: Path, output_path: Path) -> None:
     print(f"Merging {len(chunks)} result files...")
     scores = pl.concat([pl.read_parquet(f) for f in chunks])
 
-    score_cols = ["ligand_id", "ligand_based_score", "template_smiles",
+    score_cols = ["compound_key", "ligand_based_score", "template_smiles",
                   "template_source", "ligand_based_method"]
 
     result = (
         pl.read_parquet(manifest_path)
-        .join(scores.select(score_cols), on="ligand_id", how="left")
+        .join(scores.select(score_cols), on="compound_key", how="left")
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
